@@ -2,3 +2,5 @@
 out/
 *.iws
 .idea/
+cpp/build/
+*.dat
