@@ -28,6 +28,10 @@
 #include <omp.h>
 #endif
 
+#ifdef HAVE_SFML
+#include "PlotDots.h"
+#endif
+
 // ============================================================================
 // CAPD vector field string — same as original ELektron
 // Note: CAPD sign convention has POSITIVE dv/dt (see lab notes for discussion)
@@ -56,9 +60,10 @@ struct SimulationResult {
 // CAPD Taylor integrator path
 // ============================================================================
 #if HAVE_CAPD
-SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng) {
+SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
 
     Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
     // Create CAPD integrator: DMap -> DOdeSolver -> DTimeMap
@@ -142,13 +147,14 @@ SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng) {
 // ============================================================================
 // Boost.Odeint Dormand-Prince 5(4) integrator path
 // ============================================================================
-SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng) {
+SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
 
     using namespace boost::numeric::odeint;
     typedef runge_kutta_dopri5<State> dopri5_type;
     typedef controlled_runge_kutta<dopri5_type> controlled_type;
 
     Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
     RivasEquations equations;
@@ -205,15 +211,15 @@ SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng) {
 // ============================================================================
 // Dispatcher — compile-time integrator selection
 // ============================================================================
-SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng) {
+SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
     if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
 #if HAVE_CAPD
-        return runCapd(rangeMin, rangeMax, rng);
+        return runCapd(rangeMin, rangeMax, rng, recordCamera);
 #else
         static_assert(false, "CAPD selected but capd/capdlib.h not found. Install CAPD or switch to Boost.");
 #endif
     } else {
-        return runBoost(rangeMin, rangeMax, rng);
+        return runBoost(rangeMin, rangeMax, rng, recordCamera);
     }
 }
 
@@ -268,7 +274,8 @@ int main() {
 
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < totalSimulations; i++) {
-            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng);
+            bool wantCamera = (i < plotsToShow);
+            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng, wantCamera);
 
             int count = ++completedCount;
 
@@ -420,6 +427,20 @@ int main() {
         out.close();
         std::cout << "Wrote " << totalSimulations << " electron results to " << resultsPath << "\n";
     }
+
+    // ================================================================
+    // Show PlotDots visualization for the first plotsToShow electrons
+    // ================================================================
+#ifdef HAVE_SFML
+    int toShow = std::min(plotsToShow, totalSimulations);
+    for (int i = 0; i < toShow; i++) {
+        if (results[i].electron.stateCamera.size() >= 2) {
+            std::cout << "Showing PlotDots for electron " << i
+                      << " (" << results[i].electron.stateCamera.size() << " camera points)\n";
+            PlotDots::show(results[i].electron);
+        }
+    }
+#endif
 
     return 0;
 }

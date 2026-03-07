@@ -43,6 +43,14 @@ else()
     message(STATUS "CAPD not found (capd-config not at ${CAPD_CONFIG}) — Boost-only build")
 endif()
 
+# ---- SFML (optional — PlotDots visualization) ----
+find_package(SFML 2.5 COMPONENTS graphics window system QUIET)
+if(SFML_FOUND)
+    message(STATUS "SFML found — PlotDots visualization enabled")
+else()
+    message(STATUS "SFML not found — building without visualization (install libsfml-dev)")
+endif()
+
 # ---- OpenMP ----
 find_package(OpenMP)
 
@@ -63,6 +71,11 @@ if(HAVE_CAPD)
     separate_arguments(CAPD_LIBS_LIST UNIX_COMMAND "${CAPD_LIBS}")
     target_compile_options(elektron2 PRIVATE ${CAPD_CFLAGS_LIST})
     target_link_libraries(elektron2 PRIVATE ${CAPD_LIBS_LIST})
+endif()
+
+if(SFML_FOUND)
+    target_compile_definitions(elektron2 PRIVATE HAVE_SFML)
+    target_link_libraries(elektron2 PRIVATE sfml-graphics sfml-window sfml-system)
 endif()
 
 if(OpenMP_CXX_FOUND)
