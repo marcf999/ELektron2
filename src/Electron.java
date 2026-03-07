@@ -2,8 +2,9 @@ import java.text.DecimalFormat;
 import java.util.ArrayDeque;
 
 public class Electron {
-    // Camera captures all points within 3 Bohr radii of the atom
+    // Camera captures every Nth point within 3 Bohr radii of the atom
     private static final double CAMERA_RADIUS = 3.0 * PhysicalData.reducedBohr;
+    private static final int CAMERA_DECIMATION = 35;  // store every 35th point (~20k from ~700k steps)
     private static final DecimalFormat FMT = new DecimalFormat("#.######E0");
 
     // State vector indices (matches CAPD variable order: q1,q2,q3,r1,r2,r3,v1,v2,v3,u1,u2,u3)
@@ -26,8 +27,9 @@ public class Electron {
 
     public boolean isNaN = false, isRenorm = false, isFactorNeg = false;
     public boolean isWellBehaved = true;
-    public boolean recordCamera = false;  // only true for electrons that need trajectory output
+    public boolean recordCamera = false;  // only true for electrons that need visualization
     public int internalCount = 0;
+    private int cameraCounter = 0;
 
     // Initial position (d tilde in rivas notes)
     double dxZERO, dyZERO, dzZERO;
@@ -158,7 +160,10 @@ public class Electron {
 
     public void storePoint() {
         if (recordCamera && getDistanceFromAtomToMass() < CAMERA_RADIUS) {
-            electronStateCamera.add(electronCurrentState.clone());
+            if (++cameraCounter >= CAMERA_DECIMATION) {
+                cameraCounter = 0;
+                electronStateCamera.add(electronCurrentState.clone());
+            }
         }
         electronStateHistory.add(electronCurrentState.clone());
         if (electronStateHistory.size() > 1000) electronStateHistory.removeFirst();
