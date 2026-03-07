@@ -121,7 +121,8 @@ public class Main {
         System.out.println("TOTAL TIME FOR " + totalSimulations + " SIMULATIONS: " + totalElapsedMs + "ms (" + cores + " cores)");
 
         for (Electron electron : visualizationElectrons) {
-            new PlotDots(electron);
+            Electron e = electron;
+            javax.swing.SwingUtilities.invokeLater(() -> new PlotDots(e));
         }
 
         // Write full-precision results file for ALL electrons
