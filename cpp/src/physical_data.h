@@ -6,7 +6,7 @@ namespace PhysicalData {
 
     // Integrator choice: "capd" or "boost"
     enum class Integrator { CAPD, Boost };
-    constexpr Integrator integrator = Integrator::CAPD;
+    constexpr Integrator integrator = Integrator::Boost;
 
     // Impact parameter range in meters
     constexpr double rangeMin = 1e-12;
