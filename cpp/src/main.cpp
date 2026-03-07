@@ -20,6 +20,7 @@
 #include <random>
 #include <atomic>
 #include <mutex>
+#include <thread>
 #include <cmath>
 #include <ctime>
 #include <limits>
@@ -430,16 +431,21 @@ int main() {
 
     // ================================================================
     // Show PlotDots visualization for the first plotsToShow electrons
+    // Each window runs in its own thread — all visible simultaneously
     // ================================================================
 #ifdef HAVE_SFML
     int toShow = std::min(plotsToShow, totalSimulations);
+    std::vector<std::thread> plotThreads;
     for (int i = 0; i < toShow; i++) {
         if (results[i].electron.stateCamera.size() >= 2) {
-            std::cout << "Showing PlotDots for electron " << i
+            std::cout << "Launching PlotDots for electron " << i
                       << " (" << results[i].electron.stateCamera.size() << " camera points)\n";
-            PlotDots::show(results[i].electron);
+            plotThreads.emplace_back([&results, i]() {
+                PlotDots::show(results[i].electron);
+            });
         }
     }
+    for (auto& t : plotThreads) t.join();
 #endif
 
     return 0;
