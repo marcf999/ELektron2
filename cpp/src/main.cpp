@@ -308,20 +308,102 @@ int main() {
     std::cout << "TOTAL TIME FOR " << totalSimulations << " SIMULATIONS: "
               << totalMs << "ms (" << cores << " cores)\n";
 
-    // Write trajectory data for the first plotsToShow electrons
-    int toWrite = std::min(plotsToShow, totalSimulations);
-    for (int i = 0; i < toWrite; i++) {
-        std::string filename = "trajectory_" + std::to_string(i) + ".dat";
-        FILE* f = fopen(filename.c_str(), "w");
-        if (!f) continue;
-        fprintf(f, "# qx qy qz rx ry rz\n");
-        for (const auto& s : results[i].electron.stateCamera) {
-            fprintf(f, "%.10e %.10e %.10e %.10e %.10e %.10e\n",
-                    s[QX], s[QY], s[QZ], s[RX], s[RY], s[RZ]);
+    // ================================================================
+    // Write trajectory camera data for the first plotsToShow electrons
+    // Single file with context header, 10 trajectory blocks separated by markers
+    // ================================================================
+    {
+        auto now = std::chrono::system_clock::now();
+        std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
+        char timeBuf[64], dateBuf[64], timeFmt[64];
+        std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", std::localtime(&nowTime));
+        std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", std::localtime(&nowTime));
+        std::strftime(timeFmt, sizeof(timeFmt), "%H%M%S", std::localtime(&nowTime));
+
+        std::string integratorName, integratorTag;
+        if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
+            integratorName = "CAPD Taylor (order " + std::to_string(PhysicalData::capdOrder) + ")";
+            integratorTag = "capd";
+        } else {
+            integratorName = "Boost.Odeint DormandPrince5(4)";
+            integratorTag = "boost";
         }
-        fclose(f);
-        std::cout << "Wrote " << results[i].electron.stateCamera.size()
-                  << " points to " << filename << "\n";
+
+        std::string trajDir = "/mnt/c/Users/marcf/IdeaProjects/ELektron2/results/";
+        std::string trajFile = std::string(dateBuf) + "_" + timeFmt
+            + "_cpp-" + integratorTag + "_trajectories_" + std::to_string(totalSimulations) + ".dat";
+        std::string trajPath = trajDir + trajFile;
+
+        std::ofstream tout(trajPath);
+        if (!tout.is_open()) {
+            trajPath = trajFile;
+            tout.open(trajPath);
+        }
+        tout << std::setprecision(std::numeric_limits<double>::max_digits10);
+
+        // Context header (same format as results file)
+        tout << "# ELektron2 C++ Trajectory Camera Data\n";
+        tout << "# Date: " << timeBuf << "\n";
+        tout << "# Integrator: " << integratorName << "\n";
+        if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
+            tout << "# CAPD order: " << PhysicalData::capdOrder
+                 << "  stepDivisor: " << PhysicalData::capdStepDivisor
+                 << "  minStep: " << PhysicalData::capdMinStep
+                 << "  maxStep: " << PhysicalData::maxStep << "\n";
+        } else {
+            tout << "# Boost absTol: " << PhysicalData::boostAbsTol
+                 << "  relTol: " << PhysicalData::boostRelTol << "\n";
+        }
+        tout << "# Cores: " << cores << "\n";
+        tout << "# Total time: " << totalMs << " ms\n";
+        tout << "# Total simulations: " << totalSimulations << "\n";
+        tout << "# Trajectories in file: " << std::min(plotsToShow, totalSimulations) << "\n";
+        tout << "# startEnergy: " << PhysicalData::startEnergy << " eV\n";
+        tout << "# startPos: " << PhysicalData::startPos << " (reduced)\n";
+        tout << "# detectionDistance: " << PhysicalData::detectionDistance << " (reduced)\n";
+        tout << "# rangeMin: " << PhysicalData::rangeMin << " m\n";
+        tout << "# rangeMax: " << PhysicalData::rangeMax << " m\n";
+        tout << "# spin: " << PhysicalData::spin << "\n";
+        tout << "# Z: " << PhysicalData::carbonProtons << "\n";
+        tout << "# alpha: " << PhysicalData::alpha << "\n";
+        tout << "# reducedBohr: " << PhysicalData::reducedBohr << "\n";
+        tout << "# zitterRadius: " << PhysicalData::zitterRadius << " m\n";
+        tout << "# maxTime: " << PhysicalData::maxTime << " (reduced)\n";
+        tout << "# Camera threshold: distance < 100 reduced units\n";
+        tout << "# Max camera points per electron: " << Electron::MAX_CAMERA_POINTS << "\n";
+        tout << "#\n";
+        tout << "# Each trajectory block starts with:\n";
+        tout << "#   >> TRAJECTORY idx <n> points <p> dxZERO <dx> psi0 <psi> energyIn <eIn> energyOut <eOut> angle <a>\n";
+        tout << "# followed by per-step rows, and ends with:\n";
+        tout << "#   << END TRAJECTORY idx <n>\n";
+        tout << "#\n";
+        tout << "# Columns: qx qy qz rx ry rz vx vy vz ux uy uz\n";
+        tout << "#\n";
+
+        int toWrite = std::min(plotsToShow, totalSimulations);
+        for (int i = 0; i < toWrite; i++) {
+            auto& e = results[i].electron;
+            tout << ">> TRAJECTORY idx " << i
+                 << " points " << e.stateCamera.size()
+                 << " dxZERO " << e.dxZERO
+                 << " psi0 " << e.psi0
+                 << " energyIn " << e.initialKineticEnergy
+                 << " energyOut " << e.getKineticEnergy()
+                 << " angle " << e.getAngle()
+                 << "\n";
+            for (const auto& s : e.stateCamera) {
+                tout << s[QX] << " " << s[QY] << " " << s[QZ]
+                     << " " << s[RX] << " " << s[RY] << " " << s[RZ]
+                     << " " << s[VX] << " " << s[VY] << " " << s[VZ]
+                     << " " << s[UX] << " " << s[UY] << " " << s[UZ]
+                     << "\n";
+            }
+            tout << "<< END TRAJECTORY idx " << i << "\n";
+            tout << "#\n";
+        }
+
+        tout.close();
+        std::cout << "Wrote " << toWrite << " trajectories to " << trajPath << "\n";
     }
 
     // ================================================================
