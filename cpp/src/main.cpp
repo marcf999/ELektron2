@@ -56,10 +56,9 @@ struct SimulationResult {
 // CAPD Taylor integrator path
 // ============================================================================
 #if HAVE_CAPD
-SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera) {
+SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng) {
 
     Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
-    electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
     // Create CAPD integrator: DMap -> DOdeSolver -> DTimeMap
@@ -143,14 +142,13 @@ SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng, bo
 // ============================================================================
 // Boost.Odeint Dormand-Prince 5(4) integrator path
 // ============================================================================
-SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera) {
+SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng) {
 
     using namespace boost::numeric::odeint;
     typedef runge_kutta_dopri5<State> dopri5_type;
     typedef controlled_runge_kutta<dopri5_type> controlled_type;
 
     Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
-    electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
     RivasEquations equations;
@@ -207,15 +205,15 @@ SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, b
 // ============================================================================
 // Dispatcher — compile-time integrator selection
 // ============================================================================
-SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera) {
+SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng) {
     if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
 #if HAVE_CAPD
-        return runCapd(rangeMin, rangeMax, rng, recordCamera);
+        return runCapd(rangeMin, rangeMax, rng);
 #else
         static_assert(false, "CAPD selected but capd/capdlib.h not found. Install CAPD or switch to Boost.");
 #endif
     } else {
-        return runBoost(rangeMin, rangeMax, rng, recordCamera);
+        return runBoost(rangeMin, rangeMax, rng);
     }
 }
 
@@ -270,8 +268,7 @@ int main() {
 
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < totalSimulations; i++) {
-            bool wantCamera = (i < plotsToShow);
-            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng, wantCamera);
+            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng);
 
             int count = ++completedCount;
 
@@ -310,104 +307,6 @@ int main() {
               << " | isRenorm: " << isRenorm_total << "\n";
     std::cout << "TOTAL TIME FOR " << totalSimulations << " SIMULATIONS: "
               << totalMs << "ms (" << cores << " cores)\n";
-
-    // ================================================================
-    // Write trajectory camera data for the first plotsToShow electrons
-    // Single file with context header, 10 trajectory blocks separated by markers
-    // ================================================================
-    {
-        auto now = std::chrono::system_clock::now();
-        std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
-        char timeBuf[64], dateBuf[64], timeFmt[64];
-        std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", std::localtime(&nowTime));
-        std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", std::localtime(&nowTime));
-        std::strftime(timeFmt, sizeof(timeFmt), "%H%M%S", std::localtime(&nowTime));
-
-        std::string integratorName, integratorTag;
-        if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
-            integratorName = "CAPD Taylor (order " + std::to_string(PhysicalData::capdOrder) + ")";
-            integratorTag = "capd";
-        } else {
-            integratorName = "Boost.Odeint DormandPrince5(4)";
-            integratorTag = "boost";
-        }
-
-        std::string trajDir = "/mnt/c/Users/marcf/IdeaProjects/ELektron2/results/";
-        std::string trajFile = std::string(dateBuf) + "_" + timeFmt
-            + "_cpp-" + integratorTag + "_trajectories_" + std::to_string(totalSimulations) + ".dat";
-        std::string trajPath = trajDir + trajFile;
-
-        std::ofstream tout(trajPath);
-        if (!tout.is_open()) {
-            trajPath = trajFile;
-            tout.open(trajPath);
-        }
-        tout << std::setprecision(std::numeric_limits<double>::max_digits10);
-
-        // Context header (same format as results file)
-        tout << "# ELektron2 C++ Trajectory Camera Data\n";
-        tout << "# Date: " << timeBuf << "\n";
-        tout << "# Integrator: " << integratorName << "\n";
-        if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
-            tout << "# CAPD order: " << PhysicalData::capdOrder
-                 << "  stepDivisor: " << PhysicalData::capdStepDivisor
-                 << "  minStep: " << PhysicalData::capdMinStep
-                 << "  maxStep: " << PhysicalData::maxStep << "\n";
-        } else {
-            tout << "# Boost absTol: " << PhysicalData::boostAbsTol
-                 << "  relTol: " << PhysicalData::boostRelTol << "\n";
-        }
-        tout << "# Cores: " << cores << "\n";
-        tout << "# Total time: " << totalMs << " ms\n";
-        tout << "# Total simulations: " << totalSimulations << "\n";
-        tout << "# Trajectories in file: " << std::min(plotsToShow, totalSimulations) << "\n";
-        tout << "# startEnergy: " << PhysicalData::startEnergy << " eV\n";
-        tout << "# startPos: " << PhysicalData::startPos << " (reduced)\n";
-        tout << "# detectionDistance: " << PhysicalData::detectionDistance << " (reduced)\n";
-        tout << "# rangeMin: " << PhysicalData::rangeMin << " m\n";
-        tout << "# rangeMax: " << PhysicalData::rangeMax << " m\n";
-        tout << "# spin: " << PhysicalData::spin << "\n";
-        tout << "# Z: " << PhysicalData::carbonProtons << "\n";
-        tout << "# alpha: " << PhysicalData::alpha << "\n";
-        tout << "# reducedBohr: " << PhysicalData::reducedBohr << "\n";
-        tout << "# zitterRadius: " << PhysicalData::zitterRadius << " m\n";
-        tout << "# maxTime: " << PhysicalData::maxTime << " (reduced)\n";
-        tout << "# Camera threshold: distance < 3 Bohr radii (" << Electron::CAMERA_RADIUS << " reduced units)\n";
-        tout << "# Max camera points per electron: unlimited\n";
-        tout << "#\n";
-        tout << "# Each trajectory block starts with:\n";
-        tout << "#   >> TRAJECTORY idx <n> points <p> dxZERO <dx> psi0 <psi> energyIn <eIn> energyOut <eOut> angle <a>\n";
-        tout << "# followed by per-step rows, and ends with:\n";
-        tout << "#   << END TRAJECTORY idx <n>\n";
-        tout << "#\n";
-        tout << "# Columns: qx qy qz rx ry rz vx vy vz ux uy uz\n";
-        tout << "#\n";
-
-        int toWrite = std::min(plotsToShow, totalSimulations);
-        for (int i = 0; i < toWrite; i++) {
-            auto& e = results[i].electron;
-            tout << ">> TRAJECTORY idx " << i
-                 << " points " << e.stateCamera.size()
-                 << " dxZERO " << e.dxZERO
-                 << " psi0 " << e.psi0
-                 << " energyIn " << e.initialKineticEnergy
-                 << " energyOut " << e.getKineticEnergy()
-                 << " angle " << e.getAngle()
-                 << "\n";
-            for (const auto& s : e.stateCamera) {
-                tout << s[QX] << " " << s[QY] << " " << s[QZ]
-                     << " " << s[RX] << " " << s[RY] << " " << s[RZ]
-                     << " " << s[VX] << " " << s[VY] << " " << s[VZ]
-                     << " " << s[UX] << " " << s[UY] << " " << s[UZ]
-                     << "\n";
-            }
-            tout << "<< END TRAJECTORY idx " << i << "\n";
-            tout << "#\n";
-        }
-
-        tout.close();
-        std::cout << "Wrote " << toWrite << " trajectories to " << trajPath << "\n";
-    }
 
     // ================================================================
     // Write full-precision results file for ALL electrons

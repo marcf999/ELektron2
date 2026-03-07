@@ -128,8 +128,6 @@ public class Main {
         writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs,
                 isNaN, isPos, isNeg, is120L, is120R, isRenorm);
 
-        // Write trajectory camera data for the first plotsToShow electrons
-        writeTrajectoriesFile(visualizationElectrons, totalSimulations, cores, totalElapsedMs);
     }
 
     private static void writeResultsFile(List<SimulationResult> allResults,
@@ -227,94 +225,6 @@ public class Main {
             System.out.println("Wrote " + allResults.size() + " electron results to " + resultsPath.getPath());
         } catch (Exception ex) {
             System.err.println("Failed to write " + resultsPath.getPath() + ": " + ex.getMessage());
-        }
-    }
-
-    private static void writeTrajectoriesFile(List<Electron> electrons,
-            int totalSimulations, int cores, long totalElapsedMs) {
-        LocalDateTime now = LocalDateTime.now();
-        String timestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-        String datePart = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        String timePart = now.format(DateTimeFormatter.ofPattern("HHmmss"));
-
-        File resultsDir = new File(System.getProperty("user.dir")).toPath()
-                .resolve("results").toFile();
-        if (!resultsDir.exists()) {
-            resultsDir = new File(System.getProperty("user.dir")).toPath()
-                    .resolve("../results").normalize().toFile();
-        }
-        if (!resultsDir.exists()) resultsDir.mkdirs();
-        String trajFile = datePart + "_" + timePart + "_java-dp853_trajectories_" + totalSimulations + ".dat";
-        File trajPath = new File(resultsDir, trajFile);
-
-        try (PrintWriter out = new PrintWriter(new FileWriter(trajPath))) {
-
-            out.println("# ELektron2 Java Trajectory Camera Data");
-            out.println("# Date: " + timestamp);
-            out.println("# Integrator: DormandPrince853 (commons-math3)");
-            out.println("# DP853 minStep: " + repr(PhysicalData.minStep)
-                    + "  maxStep: " + repr(PhysicalData.maxStep)
-                    + "  absTol: " + repr(PhysicalData.absTol)
-                    + "  relTol: " + repr(PhysicalData.relTol));
-            out.println("# Java: " + System.getProperty("java.version")
-                    + "  OS: " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
-            out.println("# Cores: " + cores);
-            out.println("# Total time: " + totalElapsedMs + " ms");
-            out.println("# Total simulations: " + totalSimulations);
-            out.println("# Trajectories in file: " + electrons.size());
-            out.println("# startEnergy: " + repr(PhysicalData.startEnergy) + " eV");
-            out.println("# startPos: " + repr(PhysicalData.startPos) + " (reduced)");
-            out.println("# detectionDistance: " + repr(PhysicalData.detectionDistance) + " (reduced)");
-            out.println("# rangeMin: " + repr(PhysicalData.rangeMin) + " m");
-            out.println("# rangeMax: " + repr(PhysicalData.rangeMax) + " m");
-            out.println("# spin: " + PhysicalData.spin);
-            out.println("# Z: " + repr(PhysicalData.carbonProtons));
-            out.println("# alpha: " + repr(PhysicalData.alpha));
-            out.println("# reducedBohr: " + repr(PhysicalData.reducedBohr));
-            out.println("# zitterRadius: " + repr(PhysicalData.zitterRadius) + " m");
-            out.println("# maxTime: " + repr(PhysicalData.maxTime) + " (reduced)");
-            out.println("# Camera threshold: distance < 3 Bohr radii (" + repr(3.0 * PhysicalData.reducedBohr) + " reduced units)");
-            out.println("# Max camera points per electron: unlimited");
-            out.println("#");
-            out.println("# Each trajectory block starts with:");
-            out.println("#   >> TRAJECTORY idx <n> points <p> dxZERO <dx> psi0 <psi> energyIn <eIn> energyOut <eOut> angle <a>");
-            out.println("# followed by per-step rows, and ends with:");
-            out.println("#   << END TRAJECTORY idx <n>");
-            out.println("#");
-            out.println("# Columns: qx qy qz rx ry rz vx vy vz ux uy uz");
-            out.println("#");
-
-            for (int i = 0; i < electrons.size(); i++) {
-                Electron e = electrons.get(i);
-                out.println(">> TRAJECTORY idx " + i
-                        + " points " + e.electronStateCamera.size()
-                        + " dxZERO " + repr(e.dxZERO)
-                        + " psi0 " + repr(e.psi0)
-                        + " energyIn " + repr(e.initialKineticEnergy)
-                        + " energyOut " + repr(e.getKineticEnergy())
-                        + " angle " + repr(e.getAngle()));
-                for (double[] s : e.electronStateCamera) {
-                    out.print(repr(s[Electron.QX]));
-                    out.print(" " + repr(s[Electron.QY]));
-                    out.print(" " + repr(s[Electron.QZ]));
-                    out.print(" " + repr(s[Electron.RX]));
-                    out.print(" " + repr(s[Electron.RY]));
-                    out.print(" " + repr(s[Electron.RZ]));
-                    out.print(" " + repr(s[Electron.VX]));
-                    out.print(" " + repr(s[Electron.VY]));
-                    out.print(" " + repr(s[Electron.VZ]));
-                    out.print(" " + repr(s[Electron.UX]));
-                    out.print(" " + repr(s[Electron.UY]));
-                    out.print(" " + repr(s[Electron.UZ]));
-                    out.println();
-                }
-                out.println("<< END TRAJECTORY idx " + i);
-                out.println("#");
-            }
-
-            System.out.println("Wrote " + electrons.size() + " trajectories to " + trajPath.getPath());
-        } catch (Exception ex) {
-            System.err.println("Failed to write " + trajPath.getPath() + ": " + ex.getMessage());
         }
     }
 
