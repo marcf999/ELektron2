@@ -4,7 +4,12 @@ import org.apache.commons.math3.ode.sampling.StepHandler;
 import org.apache.commons.math3.ode.sampling.StepInterpolator;
 import org.apache.commons.math3.ode.events.EventHandler;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
 import java.text.DecimalFormat;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -50,6 +55,7 @@ public class Main {
         }
 
         List<Electron> visualizationElectrons = new ArrayList<>();
+        List<SimulationResult> allResults = new ArrayList<>();
         long totalStartMs = System.currentTimeMillis();
 
         try {
@@ -59,6 +65,7 @@ public class Main {
                 completedCount++;
 
                 Electron electron = result.electron;
+                allResults.add(result);
 
                 if (visualizationElectrons.size() < plotsToShow) {
                     visualizationElectrons.add(electron);
@@ -116,6 +123,113 @@ public class Main {
         for (Electron electron : visualizationElectrons) {
             new PlotDots(electron);
         }
+
+        // Write full-precision results file for ALL electrons
+        writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs,
+                isNaN, isPos, isNeg, is120L, is120R, isRenorm);
+    }
+
+    private static void writeResultsFile(List<SimulationResult> allResults,
+            int totalSimulations, int cores, long totalElapsedMs,
+            int isNaN, int isPos, int isNeg, int is120L, int is120R, int isRenorm) {
+        LocalDateTime now = LocalDateTime.now();
+        String timestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        String datePart = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        String timePart = now.format(DateTimeFormatter.ofPattern("HHmmss"));
+
+        // results/<date>_<time>_java-dp853_<iterations>.dat
+        // Resolve relative to project root (parent of src/)
+        File resultsDir = new File(System.getProperty("user.dir")).toPath()
+                .resolve("results").toFile();
+        if (!resultsDir.exists()) {
+            // Try one level up (if running from src/)
+            resultsDir = new File(System.getProperty("user.dir")).toPath()
+                    .resolve("../results").normalize().toFile();
+        }
+        if (!resultsDir.exists()) resultsDir.mkdirs();
+        String resultsFile = datePart + "_" + timePart + "_java-dp853_" + totalSimulations + ".dat";
+        File resultsPath = new File(resultsDir, resultsFile);
+
+        try (PrintWriter out = new PrintWriter(new FileWriter(resultsPath))) {
+
+            // Context header
+            out.println("# ELektron2 Java Simulation Results");
+            out.println("# Date: " + timestamp);
+            out.println("# Integrator: DormandPrince853 (commons-math3)");
+            out.println("# DP853 minStep: " + repr(PhysicalData.minStep)
+                    + "  maxStep: " + repr(PhysicalData.maxStep)
+                    + "  absTol: " + repr(PhysicalData.absTol)
+                    + "  relTol: " + repr(PhysicalData.relTol));
+            out.println("# Java: " + System.getProperty("java.version")
+                    + "  OS: " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
+            out.println("# Cores: " + cores);
+            out.println("# Total time: " + totalElapsedMs + " ms");
+            out.println("# Total simulations: " + totalSimulations);
+            out.println("# startEnergy: " + repr(PhysicalData.startEnergy) + " eV");
+            out.println("# startPos: " + repr(PhysicalData.startPos) + " (reduced)");
+            out.println("# detectionDistance: " + repr(PhysicalData.detectionDistance) + " (reduced)");
+            out.println("# rangeMin: " + repr(PhysicalData.rangeMin) + " m");
+            out.println("# rangeMax: " + repr(PhysicalData.rangeMax) + " m");
+            out.println("# spin: " + PhysicalData.spin);
+            out.println("# Z: " + repr(PhysicalData.carbonProtons));
+            out.println("# alpha: " + repr(PhysicalData.alpha));
+            out.println("# reducedBohr: " + repr(PhysicalData.reducedBohr));
+            out.println("# zitterRadius: " + repr(PhysicalData.zitterRadius) + " m");
+            out.println("# maxTime: " + repr(PhysicalData.maxTime) + " (reduced)");
+            out.println("# Summary: isNaN=" + isNaN + " isPos=" + isPos
+                    + " isNeg=" + isNeg + " is120L=" + is120L
+                    + " is120R=" + is120R + " isRenorm=" + isRenorm);
+            out.println("#");
+            out.println("# Columns:");
+            out.println("# idx qx qy qz rx ry rz vx vy vz ux uy uz"
+                    + " energyIn_eV energyOut_eV angle_deg steps"
+                    + " apexCharge apexMass v2 u2 |q-r|2"
+                    + " minZdot2 maxZdot2 minXdot2 maxXdot2 minR maxR"
+                    + " isNaN isPos isNeg elapsedMs"
+                    + " dxZERO_reduced psi0");
+            out.println("#");
+
+            for (int i = 0; i < allResults.size(); i++) {
+                SimulationResult r = allResults.get(i);
+                Electron e = r.electron;
+                double[] s = e.electronCurrentState;
+                double v2 = s[Electron.VX]*s[Electron.VX] + s[Electron.VY]*s[Electron.VY] + s[Electron.VZ]*s[Electron.VZ];
+                double u2 = s[Electron.UX]*s[Electron.UX] + s[Electron.UY]*s[Electron.UY] + s[Electron.UZ]*s[Electron.UZ];
+                double dx = s[Electron.QX]-s[Electron.RX], dy = s[Electron.QY]-s[Electron.RY], dz = s[Electron.QZ]-s[Electron.RZ];
+                double qr2 = dx*dx + dy*dy + dz*dz;
+
+                out.print(i);
+                for (int j = 0; j < 12; j++) out.print(" " + repr(s[j]));
+                out.print(" " + repr(e.initialKineticEnergy));
+                out.print(" " + repr(e.getKineticEnergy()));
+                out.print(" " + repr(e.getAngle()));
+                out.print(" " + e.internalCount);
+                out.print(" " + repr(e.minimalDistance));
+                out.print(" " + repr(e.minimalMassDistance));
+                out.print(" " + repr(v2));
+                out.print(" " + repr(u2));
+                out.print(" " + repr(qr2));
+                out.print(" " + repr(e.minZelv2) + " " + repr(e.maxZelv2));
+                out.print(" " + repr(e.minXdot2) + " " + repr(e.maxXdot2));
+                out.print(" " + repr(e.minR) + " " + repr(e.maxR));
+                out.print(" " + (e.isNaN() ? 1 : 0));
+                out.print(" " + (e.isPos() ? 1 : 0));
+                out.print(" " + (e.isNeg() ? 1 : 0));
+                out.print(" " + r.elapsedTimeMs);
+                out.print(" " + repr(e.dxZERO));
+                out.print(" " + repr(e.psi0));
+                out.println();
+            }
+
+            System.out.println("Wrote " + allResults.size() + " electron results to " + resultsPath.getPath());
+        } catch (Exception ex) {
+            System.err.println("Failed to write " + resultsPath.getPath() + ": " + ex.getMessage());
+        }
+    }
+
+    /** Full double precision — no truncation */
+    private static String repr(double v) {
+        return Double.toString(v);
     }
 
     private static void submitTask(CompletionService<SimulationResult> cs, double rangeMin, double rangeMax) {

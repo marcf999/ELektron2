@@ -14,12 +14,15 @@
 
 #include <iostream>
 #include <iomanip>
+#include <fstream>
 #include <vector>
 #include <chrono>
 #include <random>
 #include <atomic>
 #include <mutex>
 #include <cmath>
+#include <ctime>
+#include <limits>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -321,7 +324,118 @@ int main() {
                   << " points to " << filename << "\n";
     }
 
-    std::cout << "\nTo plot: gnuplot -e \"plot 'trajectory_0.dat' using 1:3 with dots\"\n";
+    // ================================================================
+    // Write full-precision results file for ALL electrons
+    // ================================================================
+    {
+        // Timestamp
+        auto now = std::chrono::system_clock::now();
+        std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
+        char timeBuf[64], dateBuf[64], timeFmt[64];
+        std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", std::localtime(&nowTime));
+        std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", std::localtime(&nowTime));
+        std::strftime(timeFmt, sizeof(timeFmt), "%H%M%S", std::localtime(&nowTime));
+
+        std::string integratorName, integratorTag;
+        if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
+            integratorName = "CAPD Taylor (order " + std::to_string(PhysicalData::capdOrder) + ")";
+            integratorTag = "capd";
+        } else {
+            integratorName = "Boost.Odeint DormandPrince5(4)";
+            integratorTag = "boost";
+        }
+
+        // results/<date>_<time>_cpp-<integrator>_<iterations>.dat
+        // Write to project root /results/ via relative path from build dir
+        std::string resultsDir = "/mnt/c/Users/marcf/IdeaProjects/ELektron2/results/";
+        std::string resultsFile = std::string(dateBuf) + "_" + timeFmt
+            + "_cpp-" + integratorTag + "_" + std::to_string(totalSimulations) + ".dat";
+        std::string resultsPath = resultsDir + resultsFile;
+
+        std::ofstream out(resultsPath);
+        if (!out.is_open()) {
+            // Fallback to current directory
+            resultsPath = resultsFile;
+            out.open(resultsPath);
+        }
+        out << std::setprecision(std::numeric_limits<double>::max_digits10);
+
+        // Context header
+        out << "# ELektron2 C++ Simulation Results\n";
+        out << "# Date: " << timeBuf << "\n";
+        out << "# Integrator: " << integratorName << "\n";
+        if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
+            out << "# CAPD order: " << PhysicalData::capdOrder
+                << "  stepDivisor: " << PhysicalData::capdStepDivisor
+                << "  minStep: " << PhysicalData::capdMinStep
+                << "  maxStep: " << PhysicalData::maxStep << "\n";
+        } else {
+            out << "# Boost absTol: " << PhysicalData::boostAbsTol
+                << "  relTol: " << PhysicalData::boostRelTol << "\n";
+        }
+        out << "# Cores: " << cores << "\n";
+        out << "# Total time: " << totalMs << " ms\n";
+        out << "# Total simulations: " << totalSimulations << "\n";
+        out << "# startEnergy: " << PhysicalData::startEnergy << " eV\n";
+        out << "# startPos: " << PhysicalData::startPos << " (reduced)\n";
+        out << "# detectionDistance: " << PhysicalData::detectionDistance << " (reduced)\n";
+        out << "# rangeMin: " << PhysicalData::rangeMin << " m\n";
+        out << "# rangeMax: " << PhysicalData::rangeMax << " m\n";
+        out << "# spin: " << PhysicalData::spin << "\n";
+        out << "# Z: " << PhysicalData::carbonProtons << "\n";
+        out << "# alpha: " << PhysicalData::alpha << "\n";
+        out << "# reducedBohr: " << PhysicalData::reducedBohr << "\n";
+        out << "# zitterRadius: " << PhysicalData::zitterRadius << " m\n";
+        out << "# maxTime: " << PhysicalData::maxTime << " (reduced)\n";
+        out << "# Summary: isNaN=" << isNaN_total << " isPos=" << isPos_total
+            << " isNeg=" << isNeg_total << " is120L=" << is120L_total
+            << " is120R=" << is120R_total << " isRenorm=" << isRenorm_total << "\n";
+        out << "#\n";
+        out << "# Columns:\n";
+        out << "# idx qx qy qz rx ry rz vx vy vz ux uy uz"
+            << " energyIn_eV energyOut_eV angle_deg steps"
+            << " apexCharge apexMass v2 u2 |q-r|2"
+            << " minZdot2 maxZdot2 minXdot2 maxXdot2 minR maxR"
+            << " isNaN isPos isNeg elapsedMs"
+            << " dxZERO_reduced psi0\n";
+        out << "#\n";
+
+        for (int i = 0; i < totalSimulations; i++) {
+            auto& e = results[i].electron;
+            const State& s = e.currentState;
+            double v2 = s[VX]*s[VX] + s[VY]*s[VY] + s[VZ]*s[VZ];
+            double u2 = s[UX]*s[UX] + s[UY]*s[UY] + s[UZ]*s[UZ];
+            double qr2 = (s[QX]-s[RX])*(s[QX]-s[RX]) + (s[QY]-s[RY])*(s[QY]-s[RY]) + (s[QZ]-s[RZ])*(s[QZ]-s[RZ]);
+
+            out << i
+                << " " << s[QX] << " " << s[QY] << " " << s[QZ]
+                << " " << s[RX] << " " << s[RY] << " " << s[RZ]
+                << " " << s[VX] << " " << s[VY] << " " << s[VZ]
+                << " " << s[UX] << " " << s[UY] << " " << s[UZ]
+                << " " << e.initialKineticEnergy
+                << " " << e.getKineticEnergy()
+                << " " << e.getAngle()
+                << " " << e.internalCount
+                << " " << e.minimalDistance
+                << " " << e.minimalMassDistance
+                << " " << v2
+                << " " << u2
+                << " " << qr2
+                << " " << e.minZelv2 << " " << e.maxZelv2
+                << " " << e.minXdot2 << " " << e.maxXdot2
+                << " " << e.minR << " " << e.maxR
+                << " " << (e.isNaN ? 1 : 0)
+                << " " << (e.isPos() ? 1 : 0)
+                << " " << (e.isNeg() ? 1 : 0)
+                << " " << results[i].elapsedMs
+                << " " << e.dxZERO
+                << " " << e.psi0
+                << "\n";
+        }
+
+        out.close();
+        std::cout << "Wrote " << totalSimulations << " electron results to " << resultsPath << "\n";
+    }
 
     return 0;
 }
