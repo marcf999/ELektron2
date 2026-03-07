@@ -20,7 +20,8 @@ enum StateIdx {
 using State = std::array<double, 12>;
 
 struct Electron {
-    static constexpr int MAX_CAMERA_POINTS = 20000;
+    // Camera captures all points within 3 Bohr radii of the atom
+    static inline const double CAMERA_RADIUS = 3.0 * PhysicalData::reducedBohr;
 
     State currentState{};
     State initialState{};
@@ -37,6 +38,7 @@ struct Electron {
 
     bool isNaN = false, isRenorm = false, isFactorNeg = false;
     bool wellBehaved = true;
+    bool recordCamera = false;  // only true for electrons that need trajectory output
     int internalCount = 0;
 
     // Initial conditions
@@ -130,10 +132,8 @@ struct Electron {
     }
 
     void storePoint() {
-        if (getDistanceFromAtomToMass() < 100.0) {
+        if (recordCamera && getDistanceFromAtomToMass() < CAMERA_RADIUS) {
             stateCamera.push_back(currentState);
-            if (stateCamera.size() > MAX_CAMERA_POINTS)
-                stateCamera.pop_front();
         }
         stateHistory.push_back(currentState);
         if (stateHistory.size() > 1000) stateHistory.pop_front();

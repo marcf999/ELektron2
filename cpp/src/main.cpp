@@ -56,9 +56,10 @@ struct SimulationResult {
 // CAPD Taylor integrator path
 // ============================================================================
 #if HAVE_CAPD
-SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng) {
+SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera) {
 
     Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
     // Create CAPD integrator: DMap -> DOdeSolver -> DTimeMap
@@ -142,13 +143,14 @@ SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng) {
 // ============================================================================
 // Boost.Odeint Dormand-Prince 5(4) integrator path
 // ============================================================================
-SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng) {
+SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera) {
 
     using namespace boost::numeric::odeint;
     typedef runge_kutta_dopri5<State> dopri5_type;
     typedef controlled_runge_kutta<dopri5_type> controlled_type;
 
     Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
     RivasEquations equations;
@@ -205,15 +207,15 @@ SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng) {
 // ============================================================================
 // Dispatcher — compile-time integrator selection
 // ============================================================================
-SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng) {
+SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera) {
     if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
 #if HAVE_CAPD
-        return runCapd(rangeMin, rangeMax, rng);
+        return runCapd(rangeMin, rangeMax, rng, recordCamera);
 #else
         static_assert(false, "CAPD selected but capd/capdlib.h not found. Install CAPD or switch to Boost.");
 #endif
     } else {
-        return runBoost(rangeMin, rangeMax, rng);
+        return runBoost(rangeMin, rangeMax, rng, recordCamera);
     }
 }
 
@@ -268,7 +270,8 @@ int main() {
 
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < totalSimulations; i++) {
-            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng);
+            bool wantCamera = (i < plotsToShow);
+            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng, wantCamera);
 
             int count = ++completedCount;
 
@@ -369,8 +372,8 @@ int main() {
         tout << "# reducedBohr: " << PhysicalData::reducedBohr << "\n";
         tout << "# zitterRadius: " << PhysicalData::zitterRadius << " m\n";
         tout << "# maxTime: " << PhysicalData::maxTime << " (reduced)\n";
-        tout << "# Camera threshold: distance < 100 reduced units\n";
-        tout << "# Max camera points per electron: " << Electron::MAX_CAMERA_POINTS << "\n";
+        tout << "# Camera threshold: distance < 3 Bohr radii (" << Electron::CAMERA_RADIUS << " reduced units)\n";
+        tout << "# Max camera points per electron: unlimited\n";
         tout << "#\n";
         tout << "# Each trajectory block starts with:\n";
         tout << "#   >> TRAJECTORY idx <n> points <p> dxZERO <dx> psi0 <psi> energyIn <eIn> energyOut <eOut> angle <a>\n";

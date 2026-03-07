@@ -50,7 +50,7 @@ public class Main {
 
         // Pre-submit up to maxInFlight tasks
         while (submitted < totalSimulations && submitted < maxInFlight) {
-            submitTask(completionService, rangeMin, rangeMax);
+            submitTask(completionService, rangeMin, rangeMax, submitted < plotsToShow);
             submitted++;
         }
 
@@ -104,7 +104,7 @@ public class Main {
 
                 // Submit next task if more remain
                 if (submitted < totalSimulations) {
-                    submitTask(completionService, rangeMin, rangeMax);
+                    submitTask(completionService, rangeMin, rangeMax, submitted < plotsToShow);
                     submitted++;
                 }
             }
@@ -273,8 +273,8 @@ public class Main {
             out.println("# reducedBohr: " + repr(PhysicalData.reducedBohr));
             out.println("# zitterRadius: " + repr(PhysicalData.zitterRadius) + " m");
             out.println("# maxTime: " + repr(PhysicalData.maxTime) + " (reduced)");
-            out.println("# Camera threshold: distance < 100 reduced units");
-            out.println("# Max camera points per electron: 20000");
+            out.println("# Camera threshold: distance < 3 Bohr radii (" + repr(3.0 * PhysicalData.reducedBohr) + " reduced units)");
+            out.println("# Max camera points per electron: unlimited");
             out.println("#");
             out.println("# Each trajectory block starts with:");
             out.println("#   >> TRAJECTORY idx <n> points <p> dxZERO <dx> psi0 <psi> energyIn <eIn> energyOut <eOut> angle <a>");
@@ -323,9 +323,10 @@ public class Main {
         return Double.toString(v);
     }
 
-    private static void submitTask(CompletionService<SimulationResult> cs, double rangeMin, double rangeMax) {
+    private static void submitTask(CompletionService<SimulationResult> cs, double rangeMin, double rangeMax, boolean recordCamera) {
         cs.submit(() -> {
             Electron electron = new Electron(PhysicalData.startEnergy, rangeMin, rangeMax);
+            electron.recordCamera = recordCamera;
             long startMs = System.currentTimeMillis();
             runSingleSimulation(electron);
             SimulationResult result = new SimulationResult();
