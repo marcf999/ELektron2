@@ -246,6 +246,48 @@ Pure Java — runs on Windows, macOS, Linux without native libraries.
 
 ---
 
+## C++ Port (Boost.Odeint + OpenMP)
+
+### 13) C++ port of ELektron2
+- Ported all 5 Java source files to C++17 under `cpp/` directory.
+- **Integrator**: Boost.Odeint `runge_kutta_dopri5` with controlled stepper (adaptive Dormand-Prince 5(4)).
+  - Note: Boost has DP5(4), not DP8(5,3) like commons-math3. Same family, lower order.
+- **Parallelism**: OpenMP `#pragma omp parallel for schedule(dynamic)` — replaces Java's ExecutorService/CompletionService pattern. Each thread gets its own `std::mt19937` RNG.
+- **Visualization**: No GUI library yet. Trajectories written to `.dat` files for gnuplot or future SFML integration.
+- **Build system**: CMake 3.16+, finds Boost (header-only) and OpenMP automatically.
+
+### C++ project structure
+```
+cpp/
+├── CMakeLists.txt
+└── src/
+    ├── physical_data.h      ← PhysicalData namespace (constexpr constants)
+    ├── electron.h            ← Electron struct with Rivas boost, diagnostics
+    ├── rivas_equations.h     ← RivasEquations functor for Boost.Odeint
+    └── main.cpp              ← OpenMP parallel Monte Carlo + .dat file output
+```
+
+### Build instructions (Linux/WSL/Ubuntu)
+```bash
+cd cpp && mkdir build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
+./elektron2
+```
+
+### Test results
+- 1000 simulations on 24 cores: **8.9 seconds**
+- All 1000 electrons forward-scattered (isPos=1000, isNaN=0)
+- Energy conservation: ~5000.00 eV out for 5000 eV in
+- Constraint |u|²: held at 1.0 throughout
+- WSL note: cmake must run in native Linux filesystem (not /mnt/c/) due to NTFS permission issues with cmake cache files.
+
+### 14) GitHub push
+- Repository pushed to `https://github.com/marcf999/ELektron2` (public).
+- 3 commits: initial Java, lab notes update, C++ port.
+
+---
+
 ## Relationship to ELektron (CAPD version)
 
 ELektron2 is a **clean rewrite** of ELektron with the same physics but different numerics:
