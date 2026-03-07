@@ -2,7 +2,16 @@
 #include "electron.h"
 #include "rivas_equations.h"
 
+// Conditionally include integrator headers
+#if __has_include("capd/capdlib.h")
+#include "capd/capdlib.h"
+#define HAVE_CAPD 1
+#else
+#define HAVE_CAPD 0
+#endif
+
 #include <boost/numeric/odeint.hpp>
+
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -16,80 +25,169 @@
 #include <omp.h>
 #endif
 
-namespace odeint = boost::numeric::odeint;
+// ============================================================================
+// CAPD vector field string — same as original ELektron
+// Note: CAPD sign convention has POSITIVE dv/dt (see lab notes for discussion)
+// ============================================================================
+#if HAVE_CAPD
+using namespace capd;
 
-// Custom observer that stores points and checks termination events
-struct SimObserver {
-    Electron& electron;
-    bool stopped = false;
-    std::string stopReason;
-
-    SimObserver(Electron& e) : electron(e) {}
-
-    void operator()(const State& y, double /*t*/) {
-        electron.loadState(y);
-        electron.storePoint();
-        if (PhysicalData::debug) electron.debugUpdate();
-
-        // Check forward detection: qz > +1000
-        if (y[QZ] > PhysicalData::detectionDistance) {
-            stopped = true;
-            stopReason = "forward";
-        }
-
-        // Check backward detection: qz < -1000 and heading away (vz < 0)
-        if (y[QZ] < -PhysicalData::detectionDistance && y[VZ] < 0) {
-            stopped = true;
-            stopReason = "backward";
-        }
-
-        // Check superluminal: v^2 >= 0.9999
-        double v2 = y[VX]*y[VX] + y[VY]*y[VY] + y[VZ]*y[VZ];
-        if (v2 > 0.9999) {
-            electron.isNaN = true;
-            stopped = true;
-            stopReason = "superluminal";
-        }
-    }
-};
+static const std::string RIVAS_VECTOR_FIELD =
+    "par:Z,alpha,rB;var:q1,q2,q3,r1,r2,r3,v1,v2,v3,u1,u2,u3;fun:"
+    "v1,v2,v3,"
+    "u1,u2,u3,"
+    "2*Z*alpha*(r1-v1*(r1*v1+r2*v2+r3*v3))*((r1^2+r2^2+r3^2)^(-1.5))*((1.0-v1^2-v2^2-v3^2)^(0.5))*exp(-((r1^2+r2^2+r3^2)^(0.5))/rB),"
+    "2*Z*alpha*(r2-v2*(r1*v1+r2*v2+r3*v3))*((r1^2+r2^2+r3^2)^(-1.5))*((1.0-v1^2-v2^2-v3^2)^(0.5))*exp(-((r1^2+r2^2+r3^2)^(0.5))/rB),"
+    "2*Z*alpha*(r3-v3*(r1*v1+r2*v2+r3*v3))*((r1^2+r2^2+r3^2)^(-1.5))*((1.0-v1^2-v2^2-v3^2)^(0.5))*exp(-((r1^2+r2^2+r3^2)^(0.5))/rB),"
+    "(q1-r1)*(1-v1*u1-v2*u2-v3*u3)/((q1-r1)^2+(q2-r2)^2+(q3-r3)^2),"
+    "(q2-r2)*(1-v1*u1-v2*u2-v3*u3)/((q1-r1)^2+(q2-r2)^2+(q3-r3)^2),"
+    "(q3-r3)*(1-v1*u1-v2*u2-v3*u3)/((q1-r1)^2+(q2-r2)^2+(q3-r3)^2);";
+#endif
 
 struct SimulationResult {
     Electron electron;
     long elapsedMs;
 };
 
-SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng) {
+// ============================================================================
+// CAPD Taylor integrator path
+// ============================================================================
+#if HAVE_CAPD
+SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng) {
 
     Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
-    RivasEquations equations;
-
     auto startTime = std::chrono::steady_clock::now();
 
-    // Boost.Odeint Dormand-Prince 8(5,3) — equivalent to DormandPrince853
-    using stepper_type = odeint::runge_kutta_dopri5<State>;
-    auto stepper = odeint::make_controlled<stepper_type>(PhysicalData::absTol, PhysicalData::relTol);
+    // Create CAPD integrator: DMap -> DOdeSolver -> DTimeMap
+    // CAPD string parsing is NOT thread-safe — protect with critical section
+    DMap* pVectorField;
+    DOdeSolver* pSolver;
+    DTimeMap* pTimeMap;
+    #pragma omp critical(capd_init)
+    {
+        pVectorField = new DMap(RIVAS_VECTOR_FIELD);
+        pVectorField->setParameter("Z", PhysicalData::carbonProtons);
+        pVectorField->setParameter("alpha", PhysicalData::alpha);
+        pVectorField->setParameter("rB", PhysicalData::reducedBohr);
+        pSolver = new DOdeSolver(*pVectorField, PhysicalData::capdOrder);
+        pTimeMap = new DTimeMap(*pSolver);
+    }
+    DTimeMap& timeMap = *pTimeMap;
 
-    State state = electron.currentState;
-    double t = 0.0;
-    double dt = 1.0; // initial step guess
+    // Load initial state into CAPD DVector
+    DVector state(12);
+    for (int i = 0; i < 12; i++) state[i] = electron.currentState[i];
 
     electron.storePoint();
 
-    SimObserver observer(electron);
+    bool stopped = false;
+    double t = 0.0;
 
     try {
-        while (t < PhysicalData::maxTime && !observer.stopped) {
-            // Clamp step size
-            if (dt < PhysicalData::minStep) dt = PhysicalData::minStep;
+        while (t < PhysicalData::maxTime && !stopped) {
+
+            // Adaptive step based on distance to nucleus (charge center)
+            double distCharge = std::sqrt(state[3]*state[3] + state[4]*state[4] + state[5]*state[5]);
+            double divisor = (distCharge < 10.0) ? PhysicalData::capdStepDivisor : 2.0;
+            double dt = distCharge / divisor;
             if (dt > PhysicalData::maxStep) dt = PhysicalData::maxStep;
+            if (dt < PhysicalData::capdMinStep) dt = PhysicalData::capdMinStep;
 
-            auto result = stepper.try_step(equations, state, t, dt);
+            DVector result = timeMap(dt, state);
+            state = result;
+            t += dt;
 
-            if (result == odeint::controlled_step_result::success) {
-                observer(state, t);
-            }
-            // If fail, stepper reduces dt automatically and we retry
+            // Copy back to electron
+            State s;
+            for (int i = 0; i < 12; i++) s[i] = state[i];
+            electron.loadState(s);
+            electron.storePoint();
+            if (PhysicalData::debug) electron.debugUpdate();
+
+            // Check forward detection: qz > +1000
+            if (state[2] > PhysicalData::detectionDistance) stopped = true;
+
+            // Check backward detection: qz < -1000 and heading away (vz < 0)
+            if (state[2] < -PhysicalData::detectionDistance && state[8] < 0) stopped = true;
+
+            // Check superluminal: v^2 >= 0.9999
+            double v2 = state[6]*state[6] + state[7]*state[7] + state[8]*state[8];
+            if (v2 > 0.9999) { electron.isNaN = true; stopped = true; }
         }
+    } catch (std::exception& e) {
+        std::cerr << "CAPD exception: " << e.what() << "\n";
+        electron.isNaN = true;
+    } catch (...) {
+        electron.isNaN = true;
+    }
+
+    // Final state
+    State finalState;
+    for (int i = 0; i < 12; i++) finalState[i] = state[i];
+    electron.loadState(finalState);
+
+    delete pTimeMap;
+    delete pSolver;
+    delete pVectorField;
+
+    auto endTime = std::chrono::steady_clock::now();
+    long ms = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    return {std::move(electron), ms};
+}
+#endif
+
+// ============================================================================
+// Boost.Odeint Dormand-Prince 5(4) integrator path
+// ============================================================================
+SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng) {
+
+    using namespace boost::numeric::odeint;
+    typedef runge_kutta_dopri5<State> dopri5_type;
+    typedef controlled_runge_kutta<dopri5_type> controlled_type;
+
+    Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    auto startTime = std::chrono::steady_clock::now();
+
+    RivasEquations equations;
+    controlled_type stepper = make_controlled(PhysicalData::boostAbsTol,
+                                              PhysicalData::boostRelTol,
+                                              dopri5_type());
+
+    State state = electron.currentState;
+    electron.storePoint();
+
+    bool stopped = false;
+    double t = 0.0;
+    double dt = 0.01; // initial step — adaptive stepper will adjust
+
+    try {
+        while (t < PhysicalData::maxTime && !stopped) {
+
+            // Boost adaptive step
+            controlled_step_result stepResult;
+            do {
+                stepResult = stepper.try_step(equations, state, t, dt);
+            } while (stepResult == fail);
+            // On success, t and dt are updated by try_step
+
+            // Copy to electron
+            electron.loadState(state);
+            electron.storePoint();
+            if (PhysicalData::debug) electron.debugUpdate();
+
+            // Check forward detection: qz > +1000
+            if (state[QZ] > PhysicalData::detectionDistance) stopped = true;
+
+            // Check backward detection: qz < -1000 and heading away (vz < 0)
+            if (state[QZ] < -PhysicalData::detectionDistance && state[VZ] < 0) stopped = true;
+
+            // Check superluminal: v^2 >= 0.9999
+            double v2 = state[VX]*state[VX] + state[VY]*state[VY] + state[VZ]*state[VZ];
+            if (v2 > 0.9999) { electron.isNaN = true; stopped = true; }
+        }
+    } catch (std::exception& e) {
+        std::cerr << "Boost exception: " << e.what() << "\n";
+        electron.isNaN = true;
     } catch (...) {
         electron.isNaN = true;
     }
@@ -98,10 +196,27 @@ SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19
 
     auto endTime = std::chrono::steady_clock::now();
     long ms = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-
     return {std::move(electron), ms};
 }
 
+// ============================================================================
+// Dispatcher — compile-time integrator selection
+// ============================================================================
+SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng) {
+    if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
+#if HAVE_CAPD
+        return runCapd(rangeMin, rangeMax, rng);
+#else
+        static_assert(false, "CAPD selected but capd/capdlib.h not found. Install CAPD or switch to Boost.");
+#endif
+    } else {
+        return runBoost(rangeMin, rangeMax, rng);
+    }
+}
+
+// ============================================================================
+// Main
+// ============================================================================
 int main() {
 
     int totalSimulations = PhysicalData::totalSimulations;
@@ -117,9 +232,16 @@ int main() {
               << " | startEnergy: " << PhysicalData::startEnergy
               << " | spin: " << PhysicalData::spin
               << " | carbonProtons(Z): " << PhysicalData::carbonProtons << "\n";
-    std::cout << "Integrator: Boost.Odeint Dormand-Prince 5(4)"
-              << " | relTol: " << PhysicalData::relTol
-              << " | absTol: " << PhysicalData::absTol << "\n";
+
+    if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
+        std::cout << "Integrator: CAPD Taylor (order " << PhysicalData::capdOrder << ")"
+                  << " | stepDivisor: " << PhysicalData::capdStepDivisor << "\n";
+    } else {
+        std::cout << "Integrator: Boost.Odeint DormandPrince5(4)"
+                  << " | absTol: " << PhysicalData::boostAbsTol
+                  << " | relTol: " << PhysicalData::boostRelTol << "\n";
+    }
+
     std::cout << "Running " << totalSimulations << " simulations on " << cores << " cores.\n";
 
     auto totalStart = std::chrono::steady_clock::now();

@@ -286,6 +286,48 @@ make -j$(nproc)
 - Repository pushed to `https://github.com/marcf999/ELektron2` (public).
 - 3 commits: initial Java, lab notes update, C++ port.
 
+### 15) CAPD Taylor integrator in C++ layer
+- Replaced Boost.Odeint with CAPD Taylor series integrator (order 20) in the C++ layer.
+- CAPD uses string-based vector field definition parsed by `DMap`, integrated via `DOdeSolver`/`DTimeMap`.
+- **CAPD vector field**: Same formula as original ELektron project — POSITIVE sign on dv/dt (see sign discrepancy note in §Known Issues).
+- **CAPD Logger issue**: CAPD was built with `HAVE_LOG4CXX` but log4cxx not linked at runtime. Solved by providing stub implementations of 5 missing symbols in `capd_logger_stub.cpp` (constructor, `isDebugEnabled`, `isTraceEnabled`, `forcedLogDebug`, `forcedLogTrace`).
+- **OpenMP thread safety**: CAPD `DMap` string parsing is NOT thread-safe. Solved with `#pragma omp critical(capd_init)` around object creation (heap-allocated), then each thread uses its own objects for integration.
+- **Manual adaptive stepping**: `dt = distCharge / divisor` where divisor = 10 close to nucleus, 2 far away. Step capped at [1e-4, 50].
+- Results: 1000 sims in ~12s (24 cores), ~290 steps/electron, energy out ~5000.005 eV. 0 NaN.
+
+### 16) Dual integrator support (CAPD + Boost.Odeint)
+- Refactored `main.cpp` to support both CAPD Taylor and Boost.Odeint Dormand-Prince 5(4).
+- Integrator selected via compile-time enum in `physical_data.h`:
+  ```cpp
+  enum class Integrator { CAPD, Boost };
+  constexpr Integrator integrator = Integrator::CAPD;  // change to Boost to switch
+  ```
+- Uses `if constexpr` for zero-overhead dispatch — unused integrator is dead-code eliminated.
+- `CMakeLists.txt` finds both Boost (required, header-only) and CAPD (optional via `capd-config`). If CAPD is not installed, only Boost path is available.
+- `capd_logger_stub.cpp` only compiled when CAPD is found.
+- `rivas_equations.h` (Boost.Odeint functor with NEGATIVE sign) reinstated alongside CAPD vector field string (POSITIVE sign).
+- Both integrators tested successfully with 1000 Monte Carlo sims.
+- Added `boostAbsTol` and `boostRelTol` parameters (both 1e-12) to `physical_data.h`.
+
+### Integrator comparison (1000 sims, 5000 eV → Carbon Z=6)
+
+| Metric | Java DP8(5,3) | C++ Boost DP5(4) | C++ CAPD Taylor-20 |
+|--------|---------------|-------------------|---------------------|
+| Steps/electron | 80k–280k | ~880,000 | ~290 |
+| Energy out (eV) | 5000.07–5000.22 | ~5000.002 | ~5000.005 |
+| Energy drift | ~0.004% | ~0.00004% | ~0.0001% |
+| isNaN | 0 | 0 | 0 |
+| isPos / isNeg | 1000/0 | 999/1 | 1000/0 |
+| Time (4 cores) | ~576s (seq) | ~50s | ~34s |
+| Time (24 cores) | N/A | ~8.9s | ~12s |
+| |u|² constraint | ~1e-7 drift | held at 1.0 | held at 1.0 |
+
+**Key observations**:
+- CAPD Taylor (order 20) takes ~3000x fewer steps than Boost DP5(4) — the high-order Taylor expansion covers large intervals per step.
+- Boost DP5(4) shows slightly better raw energy conservation than CAPD, likely due to the adaptive error estimator keeping local truncation error tight despite many more steps.
+- Java DP8(5,3) shows the most drift — higher order than Boost DP5(4) but running in Java with different floating-point semantics and many more accumulated steps.
+- All three integrators agree on the physics: forward scattering dominates at 5 keV on carbon.
+
 ---
 
 ## Relationship to ELektron (CAPD version)

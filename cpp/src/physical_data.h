@@ -4,6 +4,10 @@
 
 namespace PhysicalData {
 
+    // Integrator choice: "capd" or "boost"
+    enum class Integrator { CAPD, Boost };
+    constexpr Integrator integrator = Integrator::CAPD;
+
     // Impact parameter range in meters
     constexpr double rangeMin = 1e-12;
     constexpr double rangeMax = 1e-10;
@@ -19,11 +23,15 @@ namespace PhysicalData {
     constexpr int totalSimulations = 1000;
     constexpr int plotsToShow = 10;
 
-    // Integrator tolerances
-    constexpr double relTol = 1e-12;
-    constexpr double absTol = 1e-12;
-    constexpr double minStep = 1e-10;
-    constexpr double maxStep = 10.0;
+    // CAPD Taylor integrator parameters
+    constexpr int capdOrder = 20;
+    constexpr double capdStepDivisor = 10.0;
+    constexpr double capdMinStep = 1e-4;
+    constexpr double maxStep = 50.0;
+
+    // Boost.Odeint DormandPrince5(4) parameters
+    constexpr double boostAbsTol = 1e-12;
+    constexpr double boostRelTol = 1e-12;
 
     // Detection cutoff in reduced units
     constexpr double detectionDistance = 1000.0;
