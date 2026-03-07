@@ -221,6 +221,31 @@ Pure Java — runs on Windows, macOS, Linux without native libraries.
 
 ---
 
+## Version Control Setup
+
+### 12) Git initialization and first commit
+- Initialized git repository in `C:\Users\marcf\IdeaProjects\ELektron2`.
+- Configured git identity: `Marc Fleury <marcf999@gmail.com>`.
+- Staged all project files (11 files, 1458 lines):
+  - `.gitignore`
+  - `ELektron2.iml`
+  - `LAB NOTES/` (3 files — original ELektron notes + this session's notes)
+  - `lib/commons-math3-3.6.1.jar` (~2MB, included so repo is self-contained)
+  - `src/` (5 Java source files)
+- Initial commit message:
+  ```
+  Initial commit: ELektron2 - Relativistic electron-atom scattering
+  Pure Java rewrite of ELektron (CAPD/JNI). 12D Rivas model with
+  DormandPrince853 adaptive integrator (commons-math3). Monte Carlo
+  electron scattering off carbon (Z=6) with screened Coulomb potential.
+  Co-Authored-By: Marc Fleury and Claude Opus 4.6
+  ```
+- GitHub CLI (`gh`) not installed on this machine.
+- To publish: create repo at github.com, then `git remote add origin <url>` + `git push -u origin master`.
+- GitHub requires personal access tokens (not passwords) for HTTPS push authentication.
+
+---
+
 ## Relationship to ELektron (CAPD version)
 
 ELektron2 is a **clean rewrite** of ELektron with the same physics but different numerics:
