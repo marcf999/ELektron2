@@ -20,9 +20,12 @@ enum StateIdx {
 using State = std::array<double, 12>;
 
 struct Electron {
-    // Camera captures every Nth point within 3 Bohr radii of the atom
-    static inline const double CAMERA_RADIUS = 3.0 * PhysicalData::reducedBohr;
-    static constexpr int CAMERA_DECIMATION = 35;  // store every 35th point (~20k from ~700k steps)
+    // Camera captures every Nth point while electron is within the atom chain z-range
+    static inline const double CAMERA_RADIUS = 3.0 * PhysicalData::reducedBohr;  // legacy, for close-approach checks
+    static constexpr int CAMERA_DECIMATION = 200;  // for Boost (~13.7M steps)
+    // Chain z-range for camera capture: first atom to last atom with margin
+    static inline const double CAMERA_Z_MIN = PhysicalData::atomZ[0] - 2.0 * PhysicalData::atomSpacing;
+    static inline const double CAMERA_Z_MAX = PhysicalData::atomZ[PhysicalData::atomCount - 1] + 2.0 * PhysicalData::atomSpacing;
 
     State currentState{};
     State initialState{};
@@ -134,7 +137,7 @@ struct Electron {
     }
 
     void storePoint() {
-        if (recordCamera && getDistanceFromAtomToMass() < CAMERA_RADIUS) {
+        if (recordCamera && currentState[QZ] >= CAMERA_Z_MIN && currentState[QZ] <= CAMERA_Z_MAX) {
             if (++cameraCounter >= CAMERA_DECIMATION) {
                 cameraCounter = 0;
                 stateCamera.push_back(currentState);
@@ -175,20 +178,32 @@ struct Electron {
 
     double getKineticEnergy() { return (getGamma() - 1.0) * PhysicalData::m0c2; }
 
+    /** Distance from charge center to the nearest atom in the chain */
     double getDistanceFromAtomToCharge() {
-        double d = std::sqrt(currentState[RX]*currentState[RX] +
-                             currentState[RY]*currentState[RY] +
-                             currentState[RZ]*currentState[RZ]);
-        if (d < minimalDistance) minimalDistance = d;
-        return d;
+        double rx = currentState[RX], ry = currentState[RY], rz = currentState[RZ];
+        double xy2 = rx*rx + ry*ry;
+        double minDist = 1e30;
+        for (int k = 0; k < PhysicalData::atomCount; k++) {
+            double dz = rz - PhysicalData::atomZ[k];
+            double dist = std::sqrt(xy2 + dz*dz);
+            if (dist < minDist) minDist = dist;
+        }
+        if (minDist < minimalDistance) minimalDistance = minDist;
+        return minDist;
     }
 
+    /** Distance from mass center to the nearest atom in the chain */
     double getDistanceFromAtomToMass() {
-        double d = std::sqrt(currentState[QX]*currentState[QX] +
-                             currentState[QY]*currentState[QY] +
-                             currentState[QZ]*currentState[QZ]);
-        if (d < minimalMassDistance) minimalMassDistance = d;
-        return d;
+        double qx = currentState[QX], qy = currentState[QY], qz = currentState[QZ];
+        double xy2 = qx*qx + qy*qy;
+        double minDist = 1e30;
+        for (int k = 0; k < PhysicalData::atomCount; k++) {
+            double dz = qz - PhysicalData::atomZ[k];
+            double dist = std::sqrt(xy2 + dz*dz);
+            if (dist < minDist) minDist = dist;
+        }
+        if (minDist < minimalMassDistance) minimalMassDistance = minDist;
+        return minDist;
     }
 
     bool isPos() const { return currentState[QZ] > 0; }
@@ -200,18 +215,6 @@ struct Electron {
         double a = std::atan2(currentState[QZ], currentState[QX]) * 180.0 / M_PI;
         if (a < 0) a += 360.0;
         return a;
-    }
-
-    void debugUpdate() {
-        double zv2 = getZdot2();
-        if (zv2 < minZelv2) minZelv2 = zv2;
-        if (zv2 > maxZelv2) maxZelv2 = zv2;
-        double r = std::sqrt(getXminusZ2());
-        if (r < minR) minR = r;
-        if (r > maxR) maxR = r;
-        double xd2 = getXdot2();
-        if (xd2 < minXdot2) minXdot2 = xd2;
-        if (xd2 > maxXdot2) maxXdot2 = xd2;
     }
 
     static std::string fmt(double v) {

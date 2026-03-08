@@ -8,9 +8,16 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <mutex>
+#include <atomic>
 
 class PlotDots {
 public:
+    // Mutex to serialize window creation (X11 context init is not thread-safe)
+    static inline std::mutex windowCreationMutex;
+    // Shared flag — set by any window to close all windows at once (Q or Escape)
+    static inline std::atomic<bool> closeAll{false};
+
     static void show(Electron& electron) {
         const auto& cam = electron.stateCamera;
         int n = (int)cam.size();
@@ -25,13 +32,16 @@ public:
             rz[i] = cam[i][RZ] * PhysicalData::zitterRadius;
         }
 
-        // Auto-range
+        // Auto-range (include atom positions for full chain visibility)
         double maxVal = 1e-14;
         for (int i = 0; i < n; i++) {
             maxVal = std::max(maxVal, std::abs(qx[i]));
             maxVal = std::max(maxVal, std::abs(qz[i]));
             maxVal = std::max(maxVal, std::abs(rx[i]));
             maxVal = std::max(maxVal, std::abs(rz[i]));
+        }
+        for (int k = 0; k < PhysicalData::atomCount; k++) {
+            maxVal = std::max(maxVal, std::abs(PhysicalData::atomZ[k] * PhysicalData::zitterRadius));
         }
         double range = maxVal * 1.1;
 
@@ -43,7 +53,13 @@ public:
                 << " | Apex=" << std::scientific << std::setprecision(6) << electron.minimalDistance;
 
         const int W = 1000, H = 1000;
-        sf::RenderWindow window(sf::VideoMode(W, H), titleSS.str());
+        sf::RenderWindow window;  // default-construct (no window yet)
+
+        // Serialize window creation — X11 context initialization isn't fully thread-safe
+        {
+            std::lock_guard<std::mutex> lock(windowCreationMutex);
+            window.create(sf::VideoMode(W, H), titleSS.str());
+        }
         window.setFramerateLimit(30);
 
         // Load a monospace font — try common WSL paths
@@ -58,10 +74,23 @@ public:
         int lastMX = 0, lastMY = 0;
 
         while (window.isOpen()) {
+            // Check shared close-all flag
+            if (closeAll.load(std::memory_order_relaxed)) {
+                window.close();
+                break;
+            }
+
             sf::Event event;
             while (window.pollEvent(event)) {
                 if (event.type == sf::Event::Closed)
                     window.close();
+
+                // Q or Escape in any window closes all
+                if (event.type == sf::Event::KeyPressed &&
+                    (event.key.code == sf::Keyboard::Q || event.key.code == sf::Keyboard::Escape)) {
+                    closeAll.store(true, std::memory_order_relaxed);
+                    window.close();
+                }
 
                 // Scroll to zoom
                 if (event.type == sf::Event::MouseWheelScrolled) {
@@ -114,23 +143,29 @@ public:
             window.draw(crossH, 2, sf::Lines);
             window.draw(crossV, 2, sf::Lines);
 
-            // Bohr radius circle
+            // Draw atom chain: Bohr radius circle + nucleus dot at each atom
             double bohrM = PhysicalData::bohrRadius;
-            float bx1 = toScreenX(-bohrM), bx2 = toScreenX(bohrM);
-            float by1 = toScreenY(bohrM), by2 = toScreenY(-bohrM);
-            float bDiam = std::abs(bx2 - bx1);
-            sf::CircleShape bohrCircle(bDiam / 2.0f);
-            bohrCircle.setPosition(std::min(bx1, bx2), std::min(by1, by2));
-            bohrCircle.setFillColor(sf::Color::Transparent);
-            bohrCircle.setOutlineColor(sf::Color(80, 80, 50, 120));
-            bohrCircle.setOutlineThickness(1.0f);
-            window.draw(bohrCircle);
+            float bohrDiam = std::abs(toScreenX(bohrM) - toScreenX(-bohrM));
+            for (int k = 0; k < PhysicalData::atomCount; k++) {
+                double atomPhysZ = PhysicalData::atomZ[k] * PhysicalData::zitterRadius;
+                float ax = toScreenX(0);
+                float ay = toScreenY(atomPhysZ);
 
-            // Nucleus dot
-            sf::CircleShape nucleus(4.0f);
-            nucleus.setPosition(cx - 4, cy - 4);
-            nucleus.setFillColor(sf::Color(255, 255, 100));
-            window.draw(nucleus);
+                // Bohr radius circle (faint)
+                sf::CircleShape bohrCircle(bohrDiam / 2.0f);
+                bohrCircle.setPosition(ax - bohrDiam / 2.0f, ay - bohrDiam / 2.0f);
+                bohrCircle.setFillColor(sf::Color::Transparent);
+                bohrCircle.setOutlineColor(sf::Color(80, 80, 50, 60));
+                bohrCircle.setOutlineThickness(0.5f);
+                window.draw(bohrCircle);
+
+                // Atom nucleus dot
+                float dotR = 2.5f;
+                sf::CircleShape atomDot(dotR);
+                atomDot.setPosition(ax - dotR, ay - dotR);
+                atomDot.setFillColor(sf::Color(100, 255, 100, 200));
+                window.draw(atomDot);
+            }
 
             // Trajectory dots — mass center (yellow->red) and charge center (cyan->blue)
             for (int i = 0; i < n; i++) {
@@ -272,22 +307,28 @@ public:
                 chargeLabel.setPosition((float)(lx + 16), (float)(ly + 18));
                 window.draw(chargeLabel);
 
-                sf::Text bohrLabel;
-                bohrLabel.setFont(font);
-                bohrLabel.setCharacterSize(12);
-                bohrLabel.setFillColor(sf::Color(180, 180, 100));
-                bohrLabel.setString("--- Bohr radius");
-                bohrLabel.setPosition((float)(lx + 2), (float)(ly + 36));
-                window.draw(bohrLabel);
+                sf::CircleShape atomLeg(5);
+                atomLeg.setPosition((float)lx, (float)(ly + 38));
+                atomLeg.setFillColor(sf::Color(100, 255, 100));
+                window.draw(atomLeg);
+                sf::Text atomLabel;
+                atomLabel.setFont(font);
+                atomLabel.setCharacterSize(12);
+                atomLabel.setFillColor(sf::Color(200, 200, 200));
+                std::ostringstream als;
+                als << "C atoms (" << PhysicalData::atomCount << ") + Bohr r";
+                atomLabel.setString(als.str());
+                atomLabel.setPosition((float)(lx + 16), (float)(ly + 36));
+                window.draw(atomLabel);
 
-                // Zoom indicator
+                // Zoom indicator + close-all hint
                 sf::Text zoomTxt;
                 zoomTxt.setFont(font);
                 zoomTxt.setCharacterSize(10);
                 zoomTxt.setFillColor(sf::Color(120, 120, 120));
                 std::ostringstream zss;
                 zss << "Zoom: " << std::fixed << std::setprecision(1) << zoom
-                    << "x  (scroll to zoom, drag to pan)";
+                    << "x  (scroll=zoom, drag=pan, Q/Esc=close all)";
                 zoomTxt.setString(zss.str());
                 zoomTxt.setPosition(10, (float)(h - 15));
                 window.draw(zoomTxt);

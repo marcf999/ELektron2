@@ -103,6 +103,10 @@ public class PlotDots extends JPanel {
             maxVal = Math.max(maxVal, Math.abs(xZValues[i]));
             maxVal = Math.max(maxVal, Math.abs(yZValues[i]));
         }
+        // Include atom positions for full chain visibility
+        for (int k = 0; k < PhysicalData.atomCount; k++) {
+            maxVal = Math.max(maxVal, Math.abs(PhysicalData.atomZ[k] * PhysicalData.zitterRadius));
+        }
         return maxVal * 1.1; // 10% margin
     }
 
@@ -123,20 +127,24 @@ public class PlotDots extends JPanel {
         g2d.drawLine(0, cy, w, cy);
         g2d.drawLine(cx, 0, cx, h);
 
-        // Bohr radius circle
+        // Draw atom chain: Bohr radius circle + nucleus dot at each atom
         double bohrMeters = PhysicalData.bohrRadius;
-        int bx1 = toScreenX(-bohrMeters);
-        int by1 = toScreenY(bohrMeters);
-        int bx2 = toScreenX(bohrMeters);
-        int by2 = toScreenY(-bohrMeters);
-        g2d.setColor(new Color(80, 80, 50, 120));
-        g2d.setStroke(new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{6, 6}, 0));
-        g2d.drawOval(Math.min(bx1, bx2), Math.min(by1, by2), Math.abs(bx2 - bx1), Math.abs(by2 - by1));
-        g2d.setStroke(new BasicStroke(1));
+        int bohrW = Math.abs(toScreenX(bohrMeters) - toScreenX(-bohrMeters));
+        g2d.setStroke(new BasicStroke(0.5f));
+        for (int k = 0; k < PhysicalData.atomCount; k++) {
+            double atomPhysZ = PhysicalData.atomZ[k] * PhysicalData.zitterRadius;
+            int ax = toScreenX(0);
+            int ay = toScreenY(atomPhysZ);
 
-        // Nucleus dot
-        g2d.setColor(new Color(255, 255, 100));
-        g2d.fill(new Ellipse2D.Double(cx - 4, cy - 4, 8, 8));
+            // Bohr radius circle (faint)
+            g2d.setColor(new Color(80, 80, 50, 60));
+            g2d.drawOval(ax - bohrW / 2, ay - bohrW / 2, bohrW, bohrW);
+
+            // Atom nucleus dot
+            g2d.setColor(new Color(100, 255, 100, 200));
+            g2d.fill(new Ellipse2D.Double(ax - 3, ay - 3, 6, 6));
+        }
+        g2d.setStroke(new BasicStroke(1));
 
         // Draw trajectory with color gradient
         int n = xValues.length;
@@ -220,8 +228,10 @@ public class PlotDots extends JPanel {
         g2d.setColor(new Color(200, 200, 200));
         g2d.drawString("Charge center (r)", lx + 16, ly + 30);
 
-        g2d.setColor(new Color(180, 180, 100));
-        g2d.drawString("--- Bohr radius", lx + 2, ly + 46);
+        g2d.setColor(new Color(100, 255, 100));
+        g2d.fillOval(lx, ly + 38, 10, 10);
+        g2d.setColor(new Color(200, 200, 200));
+        g2d.drawString("C atoms (" + PhysicalData.atomCount + ") + Bohr r", lx + 16, ly + 48);
 
         // Zoom indicator
         g2d.setColor(new Color(120, 120, 120));

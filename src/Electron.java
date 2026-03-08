@@ -2,9 +2,11 @@ import java.text.DecimalFormat;
 import java.util.ArrayDeque;
 
 public class Electron {
-    // Camera captures every Nth point within 3 Bohr radii of the atom
-    private static final double CAMERA_RADIUS = 3.0 * PhysicalData.reducedBohr;
-    private static final int CAMERA_DECIMATION = 35;  // store every 35th point (~20k from ~700k steps)
+    // Camera captures every Nth point while electron is within the atom chain z-range
+    private static final double CAMERA_RADIUS = 3.0 * PhysicalData.reducedBohr;  // legacy
+    private static final int CAMERA_DECIMATION = 200;  // for Java DP853
+    private static final double CAMERA_Z_MIN = PhysicalData.atomZ[0] - 2.0 * PhysicalData.atomSpacing;
+    private static final double CAMERA_Z_MAX = PhysicalData.atomZ[PhysicalData.atomCount - 1] + 2.0 * PhysicalData.atomSpacing;
     private static final DecimalFormat FMT = new DecimalFormat("#.######E0");
 
     // State vector indices (matches CAPD variable order: q1,q2,q3,r1,r2,r3,v1,v2,v3,u1,u2,u3)
@@ -159,7 +161,7 @@ public class Electron {
     }
 
     public void storePoint() {
-        if (recordCamera && getDistanceFromAtomToMass() < CAMERA_RADIUS) {
+        if (recordCamera && electronCurrentState[QZ] >= CAMERA_Z_MIN && electronCurrentState[QZ] <= CAMERA_Z_MAX) {
             if (++cameraCounter >= CAMERA_DECIMATION) {
                 cameraCounter = 0;
                 electronStateCamera.add(electronCurrentState.clone());
@@ -211,22 +213,36 @@ public class Electron {
         return (getGamma() - 1d) * PhysicalData.m0c2;
     }
 
+    /** Distance from charge center to the nearest atom in the chain */
     public double getDistanceFromAtomToCharge() {
-        double distance = Math.sqrt(
-                electronCurrentState[RX] * electronCurrentState[RX] +
-                        electronCurrentState[RY] * electronCurrentState[RY] +
-                        electronCurrentState[RZ] * electronCurrentState[RZ]);
-        if (distance < minimalDistance) minimalDistance = distance;
-        return distance;
+        double rx = electronCurrentState[RX];
+        double ry = electronCurrentState[RY];
+        double rz = electronCurrentState[RZ];
+        double xy2 = rx * rx + ry * ry;
+        double minDist = Double.MAX_VALUE;
+        for (int k = 0; k < PhysicalData.atomCount; k++) {
+            double dz = rz - PhysicalData.atomZ[k];
+            double dist = Math.sqrt(xy2 + dz * dz);
+            if (dist < minDist) minDist = dist;
+        }
+        if (minDist < minimalDistance) minimalDistance = minDist;
+        return minDist;
     }
 
+    /** Distance from mass center to the nearest atom in the chain */
     public double getDistanceFromAtomToMass() {
-        double distance = Math.sqrt(
-                electronCurrentState[QX] * electronCurrentState[QX] +
-                        electronCurrentState[QY] * electronCurrentState[QY] +
-                        electronCurrentState[QZ] * electronCurrentState[QZ]);
-        if (distance < minimalMassDistance) minimalMassDistance = distance;
-        return distance;
+        double qx = electronCurrentState[QX];
+        double qy = electronCurrentState[QY];
+        double qz = electronCurrentState[QZ];
+        double xy2 = qx * qx + qy * qy;
+        double minDist = Double.MAX_VALUE;
+        for (int k = 0; k < PhysicalData.atomCount; k++) {
+            double dz = qz - PhysicalData.atomZ[k];
+            double dist = Math.sqrt(xy2 + dz * dz);
+            if (dist < minDist) minDist = dist;
+        }
+        if (minDist < minimalMassDistance) minimalMassDistance = minDist;
+        return minDist;
     }
 
     public boolean isPos() { return electronCurrentState[QZ] > 0; }
@@ -249,18 +265,6 @@ public class Electron {
     public boolean is120L() {
         double a = getAngle();
         return a > 209 && a < 211;
-    }
-
-    public void debug() {
-        double zvel2 = getZdot2();
-        if (zvel2 < minZelv2) minZelv2 = zvel2;
-        if (zvel2 > maxZelv2) maxZelv2 = zvel2;
-        double r = Math.sqrt(getXminusZ2());
-        if (r < minR) minR = r;
-        if (r > maxR) maxR = r;
-        double xdot2 = getXdot2();
-        if (xdot2 < minXdot2) minXdot2 = xdot2;
-        if (xdot2 > maxXdot2) maxXdot2 = xdot2;
     }
 
     public String format(double number) { return FMT.format(number); }

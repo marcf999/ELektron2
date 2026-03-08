@@ -1,12 +1,16 @@
 #pragma once
 
 #include <cmath>
+#include <array>
 
 namespace PhysicalData {
 
     // Integrator choice: "capd" or "boost"
+    // Both support multi-atom chains. CAPD builds its vector field string
+    // programmatically for N atoms. Expect slower parsing/compilation for
+    // large atom counts due to the ~14KB symbolic expression.
     enum class Integrator { CAPD, Boost };
-    constexpr Integrator integrator = Integrator::Boost;
+    constexpr Integrator integrator = Integrator::CAPD;
 
     // Impact parameter range in meters
     constexpr double rangeMin = 1e-12;
@@ -17,11 +21,27 @@ namespace PhysicalData {
     // Zitter radius in m: hbar/(2mc)
     constexpr double zitterRadius = 1.93079634e-13;
 
+    // Atom chain: 30 carbon atoms along z-axis, C-C bond length spacing (graphene)
+    constexpr int atomCount = 30;
+    constexpr double atomSpacingMeters = 1.42e-10;  // graphene C-C bond length in meters
+    constexpr double atomSpacing = atomSpacingMeters / zitterRadius;  // ~735.5 reduced units
+    constexpr double chainHalfLength = (atomCount - 1) / 2.0 * atomSpacing;
+
+    // Pre-computed atom z-positions in reduced units, centered at z=0
+    inline const std::array<double, atomCount> atomZ = []() {
+        std::array<double, atomCount> pos{};
+        double sp = atomSpacingMeters / zitterRadius;
+        for (int i = 0; i < atomCount; i++) {
+            pos[i] = (i - (atomCount - 1) / 2.0) * sp;
+        }
+        return pos;
+    }();
+
     // Simulation parameters
     constexpr double startEnergy = 5000.0;       // eV
-    constexpr double startPos = -1000.0;          // reduced units (zitter radii)
-    constexpr int totalSimulations = 1000;
-    constexpr int plotsToShow = 10;
+    constexpr double startPos = -(chainHalfLength + 4000.0);  // reduced units, well before first atom
+    constexpr int totalSimulations = 24;
+    constexpr int plotsToShow = 24;
 
     // CAPD Taylor integrator parameters
     constexpr int capdOrder = 20;
@@ -33,8 +53,8 @@ namespace PhysicalData {
     constexpr double boostAbsTol = 1e-12;
     constexpr double boostRelTol = 1e-12;
 
-    // Detection cutoff in reduced units
-    constexpr double detectionDistance = 1000.0;
+    // Detection cutoff in reduced units — beyond the atom chain
+    constexpr double detectionDistance = chainHalfLength + 4000.0;
 
     // Max integration time (reduced units)
     constexpr double maxTime = 1e6;

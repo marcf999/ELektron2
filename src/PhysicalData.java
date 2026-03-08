@@ -8,11 +8,26 @@ public class PhysicalData {
     // Zitter radius in m: hbar/(2mc)
     public static double zitterRadius = 1.93079634e-13d;
 
+    // Atom chain: 30 carbon atoms along z-axis, C-C bond length spacing (graphene)
+    public static int atomCount = 30;
+    public static double atomSpacingMeters = 1.42e-10d;  // graphene C-C bond length in meters
+    public static double atomSpacing = atomSpacingMeters / zitterRadius;  // ~735.5 reduced units
+    public static double chainHalfLength = (atomCount - 1) / 2.0 * atomSpacing;
+
+    // Pre-computed atom z-positions in reduced units, centered at z=0
+    public static double[] atomZ;
+    static {
+        atomZ = new double[atomCount];
+        for (int i = 0; i < atomCount; i++) {
+            atomZ[i] = (i - (atomCount - 1) / 2.0) * atomSpacing;
+        }
+    }
+
     // Simulation parameters
     public static double startEnergy = 5000d;       // eV
-    public static double startPos = -1000d;          // reduced units (zitter radii)
-    public static int totalSimulations = 1000;
-    public static int plotsToShow = 10;
+    public static double startPos = -(chainHalfLength + 4000);  // reduced units, well before first atom
+    public static int totalSimulations = 24;
+    public static int plotsToShow = 24;
 
     // Integrator tolerances
     public static double relTol = 1e-12d;
@@ -20,8 +35,8 @@ public class PhysicalData {
     public static double minStep = 1e-10d;
     public static double maxStep = 10d;
 
-    // Detection cutoff in reduced units
-    public static double detectionDistance = 1000d;
+    // Detection cutoff in reduced units — beyond the atom chain
+    public static double detectionDistance = chainHalfLength + 4000;
 
     // Max integration time (reduced units)
     public static double maxTime = 1e6d;

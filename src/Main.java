@@ -177,6 +177,10 @@ public class Main {
             out.println("# alpha: " + repr(PhysicalData.alpha));
             out.println("# reducedBohr: " + repr(PhysicalData.reducedBohr));
             out.println("# zitterRadius: " + repr(PhysicalData.zitterRadius) + " m");
+            out.println("# atomCount: " + PhysicalData.atomCount);
+            out.println("# atomSpacing: " + repr(PhysicalData.atomSpacing) + " (reduced) = "
+                    + repr(PhysicalData.atomSpacingMeters) + " m");
+            out.println("# chainHalfLength: " + repr(PhysicalData.chainHalfLength) + " (reduced)");
             out.println("# maxTime: " + repr(PhysicalData.maxTime) + " (reduced)");
             out.println("# Summary: isNaN=" + isNaN + " isPos=" + isPos
                     + " isNeg=" + isNeg + " is120L=" + is120L
@@ -268,7 +272,6 @@ public class Main {
                 double[] y = interpolator.getInterpolatedState();
                 electron.loadState(y);
                 electron.storePoint();
-                if (PhysicalData.debug) electron.debug();
             }
         });
 

@@ -74,8 +74,9 @@ if(HAVE_CAPD)
 endif()
 
 if(SFML_FOUND)
+    find_package(X11 REQUIRED)
     target_compile_definitions(elektron2 PRIVATE HAVE_SFML)
-    target_link_libraries(elektron2 PRIVATE sfml-graphics sfml-window sfml-system)
+    target_link_libraries(elektron2 PRIVATE sfml-graphics sfml-window sfml-system ${X11_LIBRARIES})
 endif()
 
 if(OpenMP_CXX_FOUND)
