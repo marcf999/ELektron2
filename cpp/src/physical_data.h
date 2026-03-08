@@ -5,12 +5,9 @@
 
 namespace PhysicalData {
 
-    // Integrator choice: "capd" or "boost"
-    // Both support multi-atom chains. CAPD builds its vector field string
-    // programmatically for N atoms. Expect slower parsing/compilation for
-    // large atom counts due to the ~14KB symbolic expression.
-    enum class Integrator { CAPD, Boost };
-    constexpr Integrator integrator = Integrator::CAPD;
+    // Integrator choice: CAPD, Boost, or DP853
+    enum class Integrator { CAPD, Boost, DP853 };
+    constexpr Integrator integrator = Integrator::DP853;
 
     // Impact parameter range in meters
     constexpr double rangeMin = 1e-13;
@@ -52,6 +49,12 @@ namespace PhysicalData {
     // Boost.Odeint DormandPrince5(4) parameters
     constexpr double boostAbsTol = 1e-12;
     constexpr double boostRelTol = 1e-12;
+
+    // DP853 integrator parameters (matches Java commons-math3)
+    constexpr double dp853AbsTol = 1e-12;
+    constexpr double dp853RelTol = 1e-12;
+    constexpr double dp853MinStep = 1e-10;
+    constexpr double dp853MaxStep = 10.0;
 
     // Detection cutoff in reduced units — beyond the atom chain
     constexpr double detectionDistance = chainHalfLength + 4000.0;

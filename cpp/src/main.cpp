@@ -1,6 +1,7 @@
 #include "physical_data.h"
 #include "electron.h"
 #include "rivas_equations.h"
+#include "dp853_integrator.h"
 
 // Conditionally include integrator headers
 #if __has_include("capd/capdlib.h")
@@ -292,6 +293,68 @@ SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, b
 }
 
 // ============================================================================
+// Self-contained Dormand-Prince 8(5,3) integrator path
+// Matches Apache commons-math3 DormandPrince853Integrator exactly
+// ============================================================================
+SimulationResult runDP853(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
+
+    Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    electron.recordCamera = recordCamera;
+    auto startTime = std::chrono::steady_clock::now();
+
+    RivasEquations equations;
+    DP853Integrator<12> integrator(
+        PhysicalData::dp853MinStep, PhysicalData::dp853MaxStep,
+        PhysicalData::dp853AbsTol, PhysicalData::dp853RelTol);
+
+    State state = electron.currentState;
+    electron.storePoint();
+
+    // Wrap RivasEquations for DP853's (t, y*, dydt*) calling convention
+    auto rhs = [&equations](double t, const double* y, double* dydt) {
+        State yState, dydtState;
+        std::memcpy(yState.data(), y, 12 * sizeof(double));
+        equations(yState, dydtState, t);
+        std::memcpy(dydt, dydtState.data(), 12 * sizeof(double));
+    };
+
+    bool stopped = false;
+    auto callback = [&](double t, const double* y) -> bool {
+        State s;
+        std::memcpy(s.data(), y, 12 * sizeof(double));
+        electron.loadState(s);
+        electron.storePoint();
+
+        // Forward detection
+        if (s[QZ] > PhysicalData::detectionDistance) return false;
+        // Backward detection
+        if (s[QZ] < -PhysicalData::detectionDistance && s[VZ] < 0) return false;
+        // Superluminal check
+        double v2 = s[VX]*s[VX] + s[VY]*s[VY] + s[VZ]*s[VZ];
+        if (v2 > 0.9999) { electron.isNaN = true; return false; }
+
+        return true;
+    };
+
+    try {
+        integrator.integrate(rhs, 0.0, state.data(), PhysicalData::maxTime, callback);
+    } catch (std::exception& e) {
+        std::cerr << "DP853 exception: " << e.what() << "\n";
+        electron.isNaN = true;
+    } catch (...) {
+        electron.isNaN = true;
+    }
+
+    // Final state (already loaded via callback, but ensure consistency)
+    electron.loadState(state);
+    electron.internalCount = integrator.nSteps;
+
+    auto endTime = std::chrono::steady_clock::now();
+    long ms = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+    return {std::move(electron), ms};
+}
+
+// ============================================================================
 // Dispatcher — compile-time integrator selection
 // ============================================================================
 SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
@@ -299,8 +362,10 @@ SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19
 #if HAVE_CAPD
         return runCapd(rangeMin, rangeMax, rng, recordCamera);
 #else
-        static_assert(false, "CAPD selected but capd/capdlib.h not found. Install CAPD or switch to Boost.");
+        static_assert(false, "CAPD selected but capd/capdlib.h not found. Install CAPD or switch to Boost/DP853.");
 #endif
+    } else if constexpr (PhysicalData::integrator == PhysicalData::Integrator::DP853) {
+        return runDP853(rangeMin, rangeMax, rng, recordCamera);
     } else {
         return runBoost(rangeMin, rangeMax, rng, recordCamera);
     }
@@ -334,6 +399,12 @@ int main() {
     if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
         std::cout << "Integrator: CAPD Taylor (order " << PhysicalData::capdOrder << ")"
                   << " | stepDivisor: " << PhysicalData::capdStepDivisor << "\n";
+    } else if constexpr (PhysicalData::integrator == PhysicalData::Integrator::DP853) {
+        std::cout << "Integrator: DP853 (self-contained)"
+                  << " | absTol: " << PhysicalData::dp853AbsTol
+                  << " | relTol: " << PhysicalData::dp853RelTol
+                  << " | minStep: " << PhysicalData::dp853MinStep
+                  << " | maxStep: " << PhysicalData::dp853MaxStep << "\n";
     } else {
         std::cout << "Integrator: Boost.Odeint DormandPrince5(4)"
                   << " | absTol: " << PhysicalData::boostAbsTol
@@ -420,6 +491,9 @@ int main() {
         if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
             integratorName = "CAPD Taylor (order " + std::to_string(PhysicalData::capdOrder) + ")";
             integratorTag = "capd";
+        } else if constexpr (PhysicalData::integrator == PhysicalData::Integrator::DP853) {
+            integratorName = "DP853 (self-contained)";
+            integratorTag = "dp853";
         } else {
             integratorName = "Boost.Odeint DormandPrince5(4)";
             integratorTag = "boost";
@@ -449,6 +523,11 @@ int main() {
                 << "  stepDivisor: " << PhysicalData::capdStepDivisor
                 << "  minStep: " << PhysicalData::capdMinStep
                 << "  maxStep: " << PhysicalData::maxStep << "\n";
+        } else if constexpr (PhysicalData::integrator == PhysicalData::Integrator::DP853) {
+            out << "# DP853 absTol: " << PhysicalData::dp853AbsTol
+                << "  relTol: " << PhysicalData::dp853RelTol
+                << "  minStep: " << PhysicalData::dp853MinStep
+                << "  maxStep: " << PhysicalData::dp853MaxStep << "\n";
         } else {
             out << "# Boost absTol: " << PhysicalData::boostAbsTol
                 << "  relTol: " << PhysicalData::boostRelTol << "\n";
