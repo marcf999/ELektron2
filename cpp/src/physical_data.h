@@ -13,8 +13,8 @@ namespace PhysicalData {
     constexpr Integrator integrator = Integrator::CAPD;
 
     // Impact parameter range in meters
-    constexpr double rangeMin = 1e-12;
-    constexpr double rangeMax = 1e-10;
+    constexpr double rangeMin = 1e-13;
+    constexpr double rangeMax = 1e-12;
 
     constexpr int spin = +1;
 

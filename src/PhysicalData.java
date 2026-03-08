@@ -1,7 +1,7 @@
 public class PhysicalData {
 
     // Impact parameter range in meters
-    public static double rangeMin = 1e-12d, rangeMax = 1e-10d;
+    public static double rangeMin = 1e-13d, rangeMax = 1e-12d;
 
     public static int spin = +1;
 
