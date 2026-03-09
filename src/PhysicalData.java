@@ -1,7 +1,7 @@
 public class PhysicalData {
 
     // Impact parameter range in meters
-    public static double rangeMin = 1e-13d, rangeMax = 1e-12d;
+    public static double rangeMin = 1e-12d, rangeMax = 1e-10d;
 
     public static int spin = +1;
 
@@ -26,8 +26,8 @@ public class PhysicalData {
     // Simulation parameters
     public static double startEnergy = 5000d;       // eV
     public static double startPos = -(chainHalfLength + 4000);  // reduced units, well before first atom
-    public static int totalSimulations = 24;
-    public static int plotsToShow = 24;
+    public static int totalSimulations = 240;
+    public static int plotsToShow = 0;
 
     // Integrator tolerances
     public static double relTol = 1e-12d;
@@ -42,13 +42,8 @@ public class PhysicalData {
     public static double maxTime = 1e6d;
 
     // Logging
-    public static boolean debug = true;
     public static boolean logInitialConditions = false;
     public static int progressLogEvery = 100;
-
-    // Integrity tolerances
-    public static double radiusTolerance = 1e-1d;
-    public static double zdot2Tolerance = 1e-1d;
 
     // Dirac frequency in s^-1
     public static double zetaFrequency = 1.55268814e21d;
@@ -81,4 +76,11 @@ public class PhysicalData {
 
     // Reduced Bohr radius (in zitter radii)
     public static double reducedBohr = bohrRadius / zitterRadius; // ~275
+
+    // XY-boundary: stop if |qx| or |qy| exceeds 10 Bohr radii (reduced units)
+    public static double xyBoundary = 10.0 * reducedBohr;
+
+    // Detector: 1m distance, 1mm × 1mm square aperture centered on z-axis
+    public static double detectorDistanceM = 1.0d;      // meters
+    public static double apertureHalfM = 0.5e-3d;       // half-width in meters (1mm side)
 }

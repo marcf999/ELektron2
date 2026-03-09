@@ -74,13 +74,13 @@ du/dt = (q - r) * (1 - v·u) / |q - r|²
 | File | Purpose |
 |------|---------|
 | `PhysicalData.java` | All constants, integrator config (tolerances, step bounds) |
-| `Electron.java` | 12D state vector, Rivas boost initialization, diagnostics |
+| `Electron.java` | 12D state vector, Rivas boost initialization |
 | `RivasEquations.java` | `FirstOrderDifferentialEquations` implementation (12D ODE) |
-| `Main.java` | Parallel Monte Carlo (ExecutorService + CompletionService), display N trajectories |
+| `Main.java` | Parallel Monte Carlo, virtual detector, results file for detected electrons |
 | `PlotDots.java` | Swing visualization with auto-scale, zoom, pan, gradient colors |
 
 - **Integrator**: `DormandPrince853Integrator(minStep=1e-10, maxStep=10, absTol=1e-12, relTol=1e-12)`
-- **Event handlers**: Forward detection (qz > +1000), backward detection (qz < -1000 and vz < 0), superluminal guard (v² > 0.9999).
+- **Event handlers**: Forward detection (qz > detectionDistance), backward detection (qz < -detectionDistance and vz < 0), XY-boundary (|qx| or |qy| > 10 Bohr radii), superluminal guard (v² > 0.9999).
 - **No fix() renormalization** — DormandPrince853 maintains |u| = 1 through tight tolerances alone.
 
 ### C++ Layer (`cpp/`)
@@ -90,10 +90,10 @@ cpp/
 ├── CMakeLists.txt
 └── src/
     ├── physical_data.h        ← constexpr constants + integrator enum
-    ├── electron.h              ← Electron struct with Rivas boost, diagnostics
+    ├── electron.h              ← Electron struct with Rivas boost
     ├── rivas_equations.h       ← Boost.Odeint functor (negative sign on dv/dt)
     ├── dp853_integrator.h      ← Self-contained DP8(5,3) matching commons-math3
-    ├── main.cpp                ← Triple integrator: CAPD / Boost / DP853
+    ├── main.cpp                ← Triple integrator, virtual detector, detected-only output
     ├── capd_logger_stub.cpp    ← Logger stubs for standalone CAPD usage
     └── cuda/
         └── elektron_cuda.cu    ← GPU-parallel DP853 (self-contained, FP32/FP64)
@@ -110,8 +110,10 @@ cpp/
 - **DP853 (self-contained)**: `dp853_integrator.h`, template<int N>, exact Butcher tableau match to Apache commons-math3 DormandPrince853. No external dependencies. Stack arrays only, no dynamic allocation. CUDA-portable. Default integrator.
 - **CUDA**: `elektron_cuda.cu`, one thread per electron, `__constant__` memory for Butcher tableau + physics constants. Two CMake targets: FP32 (`--use_fast_math`) and FP64.
 - **Parallelism**: OpenMP `#pragma omp parallel for schedule(dynamic)`, per-thread RNG.
-- **Visualization**: SFML PlotDots with parallel windows (Q/Esc close-all), atom markers on chain.
-- **Output**: Trajectories written to `.dat` files, results summary to console.
+- **Termination**: Forward/backward z-detection, XY-boundary (10 Bohr radii), superluminal guard.
+- **Virtual detector**: 1m distance, square aperture. Projects final velocity `(vx/vz, vy/vz) * distance` to detector plane. Only detected electrons written to results file and shown in PlotDots.
+- **Visualization**: SFML PlotDots with parallel windows (Q/Esc close-all), atom markers on chain. Only detected electrons displayed.
+- **Output**: Results `.dat` file with detected electrons only, including `xDet_mm`/`yDet_mm` columns.
 
 ---
 
@@ -378,6 +380,62 @@ The GPU approach could only be viable:
 
 The code is preserved in `cpp/src/cuda/elektron_cuda.cu` for potential future use on datacenter hardware.
 
+### March 8, 2026 — Dead code cleanup
+
+**25) Legacy diagnostics removal (Java + C++)**
+- Removed ~15 diagnostic fields from `Electron`: `minimalDistance`, `minimalMassDistance`, `integrationStepTime`, `minStepTime`, `minZelv2`, `maxZelv2`, `minXdot2`, `maxXdot2`, `minR`, `maxR`, `maxGamma`, `isNaN`, `isRenorm`, `isFactorNeg`, `isWellBehaved`.
+- Removed methods: `checkIntegrity()`, `getDistanceFromAtomToCharge()`, `getDistanceFromAtomToMass()`, `getuv()`, `getConstraints()`, `getPARAMS()`, `setIntegrationStepTime()`, `isPos()`, `isNeg()`, `is120R()`, `is120L()`.
+- Removed `CAMERA_RADIUS` legacy constant (replaced by z-range camera in prior session).
+- Made `getGamma()` and `getKineticEnergy()` `const` in C++.
+- Removed ANSI color constants, unused `DecimalFormat` import.
+
+**26) State tallying removal (Main.java + main.cpp)**
+- Removed all isNaN/isPos/isNeg/is120L/is120R/isRenorm counters and per-electron tallying from the simulation loop.
+- Simplified progress logging: just run count + electron exit info + steps + time.
+- Removed `debug` flag, `radiusTolerance`, `zdot2Tolerance` from PhysicalData.
+- `getEXIT()` simplified: removed Apex distance and Max Gamma fields.
+- `getGamma()` no longer sets `isNaN` flag — just returns 1e6 sentinel for v² > 1.
+- Exception handlers now print to stderr instead of setting `isNaN`.
+
+**27) Results file cleanup**
+- Removed columns: `apexCharge`, `apexMass`, `v2`, `u2`, `|q-r|2`, `minZdot2`, `maxZdot2`, `minXdot2`, `maxXdot2`, `minR`, `maxR`, `isNaN`, `isPos`, `isNeg`.
+- Removed `Summary:` header line with tally counts.
+- Removed `alpha`, `reducedBohr`, `zitterRadius`, `maxTime` from Java results header.
+- Columns now: `idx qx qy qz rx ry rz vx vy vz ux uy uz energyIn_eV energyOut_eV angle_deg steps elapsedMs dxZERO_reduced psi0`.
+
+### March 9, 2026 — Virtual detector and XY-boundary
+
+**28) XY-boundary event handlers**
+- New parameter: `xyBoundary = 10.0 * reducedBohr` (~2750 reduced units).
+- Electrons that drift too far off-axis (|qx| or |qy| > xyBoundary) are stopped.
+- Java: 4 new `EventHandler` instances (±qx, ±qy boundaries).
+- C++: Added `std::abs(state[QX]) > xyBoundary || std::abs(state[QY]) > xyBoundary` check in all 3 integrator loops (CAPD, Boost, DP853).
+- Purpose: prevents electrons from spiraling indefinitely in the transverse plane after close encounters.
+
+**29) Virtual detector model**
+- New parameters in PhysicalData:
+  - `detectorDistanceM = 1.0` (1 meter from scattering center).
+  - `apertureHalfM`: 0.5e-3 m (1mm × 1mm) in Java, 50e-3 m (100mm × 100mm) in C++.
+- Detection logic (C++ `main.cpp`): for forward-going electrons (vz > 0), project velocity to detector plane:
+  ```
+  xAtDet = (vx / vz) * detectorDistanceM
+  yAtDet = (vy / vz) * detectorDistanceM
+  ```
+  If |xAtDet| < apertureHalfM and |yAtDet| < apertureHalfM → electron is "detected".
+- Console output: prints `DETECTED #N (electron i)` with detector coordinates in mm.
+- Summary line: `DETECTED: N/total` count.
+- Results file: **only writes detected electrons** (not all simulations). Added `xDet_mm` and `yDet_mm` columns.
+- PlotDots (C++): only shows trajectories for detected electrons.
+- `SimulationResult` struct gains `bool detected = false` field.
+
+**30) Parameter changes for production runs**
+- Impact parameter range widened back to `[1e-12, 1e-10]` meters (was `[1e-13, 1e-12]`). Wider range samples both close and distant encounters.
+- Simulation count scaled up: Java 240 (was 24), C++ 2400 (was 24).
+- `plotsToShow = 0` — visualization disabled by default; only detected electrons are shown.
+- All electrons now record camera data (`wantCamera` always true in C++) since only detected ones are displayed.
+- Progress logging interval: every 48 completions in C++ (was `progressLogEvery = 100`).
+- Detector distance and aperture printed at startup.
+
 ---
 
 ## Integrator Comparison
@@ -435,9 +493,11 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 
 1. **Performance**: Some electrons with large impact parameters take millions of steps (Java/Boost). Could skip force calculation when `exp(-r/rB)` is negligible and propagate ballistically.
 2. **Energy conservation (Java)**: Energy out shows ~5000.07–5000.22 eV for 5000 eV in. Small gain (~0.004%) likely from integrator drift. Tighter tolerances or symplectic integrator would help.
-3. **CAPD sign discrepancy**: The CAPD vector field string has positive sign on dv/dt. The SymplecticEuler and Java/Boost RivasEquations have negative. Both conventions produce forward-scattered electrons with good energy conservation. Need to verify against Rivas paper.
+3. ~~**CAPD sign discrepancy**~~: Fixed in entry §19. All integrators now use negative (attractive) sign on dv/dt.
 4. **Constraints**: |u| = 1 and |q-r|² = 1 maintained to ~1e-7 by Java integrator tolerances (no fix()). C++ integrators hold tighter. Monitor for drift in long runs.
 5. **CAPD scaling**: Critical section for `DMap` parsing limits parallel scaling. Investigate CAPD copy constructors or thread-local pre-initialization.
+6. **Detector aperture mismatch**: Java uses 1mm × 1mm aperture (`apertureHalfM = 0.5e-3`), C++ uses 100mm × 100mm (`apertureHalfM = 50e-3`). Should be unified.
+7. **Java detector**: Java `PhysicalData` defines `detectorDistanceM` and `apertureHalfM` but `Main.java` does not yet implement the detector projection logic. Only C++ filters by detected electrons.
 
 ---
 

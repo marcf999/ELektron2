@@ -21,7 +21,6 @@ using State = std::array<double, 12>;
 
 struct Electron {
     // Camera captures every Nth point while electron is within the atom chain z-range
-    static inline const double CAMERA_RADIUS = 3.0 * PhysicalData::reducedBohr;  // legacy, for close-approach checks
     static constexpr int CAMERA_DECIMATION = 200;  // for Boost (~13.7M steps)
     // Chain z-range for camera capture: first atom to last atom with margin
     static inline const double CAMERA_Z_MIN = PhysicalData::atomZ[0] - 2.0 * PhysicalData::atomSpacing;
@@ -34,14 +33,7 @@ struct Electron {
     std::vector<State> stateCamera;
 
     double initialKineticEnergy = 0;
-    double minimalDistance = 1.0, minimalMassDistance = 1.0;
-    double integrationStepTime = 0, minStepTime = 1.0;
-    double minZelv2 = 1.0, maxZelv2 = 1.0, minXdot2 = 1.0, maxXdot2 = 0.0;
-    double minR = 4.0, maxR = 0.0;
-    double maxGamma = 0.0;
 
-    bool isNaN = false, isRenorm = false, isFactorNeg = false;
-    bool wellBehaved = true;
     bool recordCamera = false;
     int internalCount = 0;
     int cameraCounter = 0;
@@ -124,18 +116,6 @@ struct Electron {
 
     void loadState(const State& state) { currentState = state; }
 
-    bool checkIntegrity() const {
-        bool ok = true;
-        double xmz2 = getXminusZ2();
-        if (xmz2 > 4.0 + 4.0 * PhysicalData::radiusTolerance) ok = false;
-        double zd2 = getZdot2();
-        if (zd2 > 1.0 + PhysicalData::zdot2Tolerance || zd2 < 1.0 - PhysicalData::zdot2Tolerance) ok = false;
-        double xd2 = getXdot2();
-        if (xd2 > 1.0) ok = false;
-        if (isFactorNeg) ok = false;
-        return ok;
-    }
-
     void storePoint() {
         if (recordCamera && currentState[QZ] >= CAMERA_Z_MIN && currentState[QZ] <= CAMERA_Z_MAX) {
             if (++cameraCounter >= CAMERA_DECIMATION) {
@@ -167,49 +147,13 @@ struct Electron {
                currentState[UZ]*currentState[UZ];
     }
 
-    double getGamma() {
+    double getGamma() const {
         double v2 = getXdot2();
-        if (v2 > 1.0) { isNaN = true; return 1e6; }
-        double gamma = 1.0 / std::sqrt(1.0 - v2);
-        if (gamma > 1e6) isNaN = true;
-        if (maxGamma < gamma) maxGamma = gamma;
-        return gamma;
+        if (v2 > 1.0) return 1e6;
+        return 1.0 / std::sqrt(1.0 - v2);
     }
 
-    double getKineticEnergy() { return (getGamma() - 1.0) * PhysicalData::m0c2; }
-
-    /** Distance from charge center to the nearest atom in the chain */
-    double getDistanceFromAtomToCharge() {
-        double rx = currentState[RX], ry = currentState[RY], rz = currentState[RZ];
-        double xy2 = rx*rx + ry*ry;
-        double minDist = 1e30;
-        for (int k = 0; k < PhysicalData::atomCount; k++) {
-            double dz = rz - PhysicalData::atomZ[k];
-            double dist = std::sqrt(xy2 + dz*dz);
-            if (dist < minDist) minDist = dist;
-        }
-        if (minDist < minimalDistance) minimalDistance = minDist;
-        return minDist;
-    }
-
-    /** Distance from mass center to the nearest atom in the chain */
-    double getDistanceFromAtomToMass() {
-        double qx = currentState[QX], qy = currentState[QY], qz = currentState[QZ];
-        double xy2 = qx*qx + qy*qy;
-        double minDist = 1e30;
-        for (int k = 0; k < PhysicalData::atomCount; k++) {
-            double dz = qz - PhysicalData::atomZ[k];
-            double dist = std::sqrt(xy2 + dz*dz);
-            if (dist < minDist) minDist = dist;
-        }
-        if (minDist < minimalMassDistance) minimalMassDistance = minDist;
-        return minDist;
-    }
-
-    bool isPos() const { return currentState[QZ] > 0; }
-    bool isNeg() const { return currentState[QZ] < 0; }
-    bool is120R() const { double a = getAngle(); return a > 329 && a < 331; }
-    bool is120L() const { double a = getAngle(); return a > 209 && a < 211; }
+    double getKineticEnergy() const { return (getGamma() - 1.0) * PhysicalData::m0c2; }
 
     double getAngle() const {
         double a = std::atan2(currentState[QZ], currentState[QX]) * 180.0 / M_PI;
@@ -225,19 +169,8 @@ struct Electron {
 
     std::string getEXIT() {
         return " | Start position: " + fmt(stateHistory.front()[QX]) +
-               " | Apex: " + fmt(minimalDistance) +
                " | Finish position: " + fmt(stateHistory.back()[QX]) +
                " | Angle out: " + std::to_string((int)getAngle()) +
-               "deg | Energy out: " + fmt(getKineticEnergy()) +
-               "eV | Max Gamma: " + fmt(maxGamma);
-    }
-
-    std::string getConstraints() const {
-        if (!PhysicalData::debug) return "";
-        std::ostringstream oss;
-        oss << " | minZdot2: " << minZelv2 << " | maxZelv2: " << maxZelv2
-            << " | minXdot2: " << minXdot2 << " | maxXdot2: " << maxXdot2
-            << " | minR: " << minR << " | maxR: " << maxR;
-        return oss.str();
+               "deg | Energy out: " + fmt(getKineticEnergy()) + "eV";
     }
 };

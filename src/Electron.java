@@ -3,7 +3,6 @@ import java.util.ArrayDeque;
 
 public class Electron {
     // Camera captures every Nth point while electron is within the atom chain z-range
-    private static final double CAMERA_RADIUS = 3.0 * PhysicalData.reducedBohr;  // legacy
     private static final int CAMERA_DECIMATION = 200;  // for Java DP853
     private static final double CAMERA_Z_MIN = PhysicalData.atomZ[0] - 2.0 * PhysicalData.atomSpacing;
     private static final double CAMERA_Z_MAX = PhysicalData.atomZ[PhysicalData.atomCount - 1] + 2.0 * PhysicalData.atomSpacing;
@@ -23,12 +22,6 @@ public class Electron {
 
     public double initialKineticEnergy;
 
-    public double minimalDistance = 1d, minimalMassDistance = 1d, integrationStepTime = 0, minStepTime = 1d;
-    public double minZelv2 = 1d, maxZelv2 = 1d, minXdot2 = 1d, maxXdot2 = 0d, minR = 4, maxR = 0;
-    public double maxGamma = 0d;
-
-    public boolean isNaN = false, isRenorm = false, isFactorNeg = false;
-    public boolean isWellBehaved = true;
     public boolean recordCamera = false;  // only true for electrons that need visualization
     public int internalCount = 0;
     private int cameraCounter = 0;
@@ -39,9 +32,6 @@ public class Electron {
     double theta0, phi0;
     // Initial phase of zitter
     double psi0;
-
-    private static final String ANSI_RESET = "\u001B[0m";
-    private static final String ANSI_GREEN = "\u001B[32m";
 
     public Electron(double initialKineticEnergy, double rangeMin, double rangeMax) {
 
@@ -135,31 +125,6 @@ public class Electron {
         System.arraycopy(state, 0, electronCurrentState, 0, 12);
     }
 
-    public boolean checkIntegrity() {
-        boolean ok = true;
-
-        double XminusZ2 = getXminusZ2();
-        if (XminusZ2 > 4 + 4 * PhysicalData.radiusTolerance) {
-            ok = false;
-        }
-
-        double Zdot2 = getZdot2();
-        if (Zdot2 > 1 + PhysicalData.zdot2Tolerance || Zdot2 < 1 - PhysicalData.zdot2Tolerance) {
-            ok = false;
-        }
-
-        double Xdot2 = getXdot2();
-        if (Xdot2 > 1) {
-            ok = false;
-        }
-
-        if (isFactorNeg) {
-            ok = false;
-        }
-
-        return ok;
-    }
-
     public void storePoint() {
         if (recordCamera && electronCurrentState[QZ] >= CAMERA_Z_MIN && electronCurrentState[QZ] <= CAMERA_Z_MAX) {
             if (++cameraCounter >= CAMERA_DECIMATION) {
@@ -179,12 +144,6 @@ public class Electron {
         return dx * dx + dy * dy + dz * dz;
     }
 
-    public double getuv() {
-        return electronCurrentState[VX] * electronCurrentState[UX] +
-                electronCurrentState[VY] * electronCurrentState[UY] +
-                electronCurrentState[VZ] * electronCurrentState[UZ];
-    }
-
     public double getXdot2() {
         return electronCurrentState[VX] * electronCurrentState[VX] +
                 electronCurrentState[VY] * electronCurrentState[VY] +
@@ -199,56 +158,13 @@ public class Electron {
 
     public double getGamma() {
         double v2 = getXdot2();
-        if (v2 > 1) {
-            isNaN = true;
-            return 1E6d;
-        }
-        double gamma = 1 / Math.sqrt(1 - v2);
-        if (gamma > 1E6) isNaN = true;
-        if (maxGamma < gamma) maxGamma = gamma;
-        return gamma;
+        if (v2 > 1) return 1E6d;
+        return 1 / Math.sqrt(1 - v2);
     }
 
     public double getKineticEnergy() {
         return (getGamma() - 1d) * PhysicalData.m0c2;
     }
-
-    /** Distance from charge center to the nearest atom in the chain */
-    public double getDistanceFromAtomToCharge() {
-        double rx = electronCurrentState[RX];
-        double ry = electronCurrentState[RY];
-        double rz = electronCurrentState[RZ];
-        double xy2 = rx * rx + ry * ry;
-        double minDist = Double.MAX_VALUE;
-        for (int k = 0; k < PhysicalData.atomCount; k++) {
-            double dz = rz - PhysicalData.atomZ[k];
-            double dist = Math.sqrt(xy2 + dz * dz);
-            if (dist < minDist) minDist = dist;
-        }
-        if (minDist < minimalDistance) minimalDistance = minDist;
-        return minDist;
-    }
-
-    /** Distance from mass center to the nearest atom in the chain */
-    public double getDistanceFromAtomToMass() {
-        double qx = electronCurrentState[QX];
-        double qy = electronCurrentState[QY];
-        double qz = electronCurrentState[QZ];
-        double xy2 = qx * qx + qy * qy;
-        double minDist = Double.MAX_VALUE;
-        for (int k = 0; k < PhysicalData.atomCount; k++) {
-            double dz = qz - PhysicalData.atomZ[k];
-            double dist = Math.sqrt(xy2 + dz * dz);
-            if (dist < minDist) minDist = dist;
-        }
-        if (minDist < minimalMassDistance) minimalMassDistance = minDist;
-        return minDist;
-    }
-
-    public boolean isPos() { return electronCurrentState[QZ] > 0; }
-    public boolean isNeg() { return electronCurrentState[QZ] < 0; }
-    public boolean isNaN() { return isNaN; }
-    public boolean isRenorm() { return isRenorm; }
 
     public double getAngle() {
         double angleInRadians = Math.atan2(electronCurrentState[QZ], electronCurrentState[QX]);
@@ -257,35 +173,13 @@ public class Electron {
         return angleInDegrees;
     }
 
-    public boolean is120R() {
-        double a = getAngle();
-        return a > 329 && a < 331;
-    }
-
-    public boolean is120L() {
-        double a = getAngle();
-        return a > 209 && a < 211;
-    }
-
     public String format(double number) { return FMT.format(number); }
 
     public String getEXIT() {
         return " | Start position: " + format(electronStateHistory.getFirst()[QX]) +
-                " | Apex: " + format(minimalDistance) +
                 " | Finish position: " + format(electronStateHistory.getLast()[QX]) +
                 " | Angle out: " + (int) (getAngle()) +
-                "deg | Energy out: " + format(getKineticEnergy()) +
-                "eV | Max Gamma: " + format(maxGamma);
-    }
-
-    public String getConstraints() {
-        if (PhysicalData.debug)
-            return ANSI_GREEN + " | minZdot2: " + minZelv2 + " | maxZelv2: " + maxZelv2 + " | minXdot2: " + minXdot2 + " | maxXdot2: " + maxXdot2 + " | minR: " + minR + " | maxR: " + maxR + ANSI_RESET;
-        else return "";
-    }
-
-    public String getPARAMS() {
-        return "PARAMS | rangeMin: " + PhysicalData.rangeMin + " | rangeMax: " + PhysicalData.rangeMax;
+                "deg | Energy out: " + format(getKineticEnergy()) + "eV";
     }
 
     public String printState() {
@@ -306,10 +200,5 @@ public class Electron {
                 " | RadiusX-Z: " + format(getXminusZ2()) +
                 " | Energy: " + format(getKineticEnergy()) + "eV" +
                 " | Gamma: " + format(getGamma());
-    }
-
-    public void setIntegrationStepTime(double t) {
-        this.integrationStepTime = t;
-        if (minStepTime < t) minStepTime = t;
     }
 }

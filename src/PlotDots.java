@@ -40,9 +40,8 @@ public class PlotDots extends JPanel {
         setBackground(new Color(20, 20, 30));
 
         // Title bar with key info
-        String title = String.format("ELektron2 | E=%.0feV | Angle=%d\u00B0 | Spin=%+d | Apex=%s",
-                electron.getKineticEnergy(), (int) electron.getAngle(), PhysicalData.spin,
-                electron.format(electron.minimalDistance));
+        String title = String.format("ELektron2 | E=%.0feV | Angle=%d\u00B0 | Spin=%+d",
+                electron.getKineticEnergy(), (int) electron.getAngle(), PhysicalData.spin);
         frame = new JFrame(title);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         frame.add(this);
@@ -195,7 +194,7 @@ public class PlotDots extends JPanel {
         // Info text
         g2d.setFont(new Font("Monospaced", Font.PLAIN, 11));
         g2d.setColor(new Color(180, 180, 180));
-        g2d.drawString(electron.getPARAMS(), 10, 22);
+        g2d.drawString("PARAMS | rangeMin: " + PhysicalData.rangeMin + " | rangeMax: " + PhysicalData.rangeMax, 10, 22);
         g2d.setColor(new Color(200, 200, 200));
         g2d.drawString(electron.getEXIT(), 10, 38);
         g2d.setColor(new Color(160, 160, 160));

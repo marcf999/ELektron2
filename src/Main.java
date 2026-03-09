@@ -7,7 +7,6 @@ import org.apache.commons.math3.ode.events.EventHandler;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.PrintWriter;
-import java.text.DecimalFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -17,7 +16,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main {
 
-    private static final DecimalFormat FMT = new DecimalFormat("#.###E0");
     private static final int IN_FLIGHT_PER_CORE = 4;
 
     private static class SimulationResult {
@@ -31,12 +29,12 @@ public class Main {
         int plotsToShow = PhysicalData.plotsToShow;
         int cores = Runtime.getRuntime().availableProcessors();
 
-        int isNaN = 0, isRenorm = 0, isNeg = 0, isPos = 0, is120L = 0, is120R = 0;
         double rangeMin = PhysicalData.rangeMin, rangeMax = PhysicalData.rangeMax;
 
         System.out.println("PARAMS | rangeMin: " + rangeMin + " | rangeMax: " + rangeMax +
                 " | startEnergy: " + PhysicalData.startEnergy + " | spin: " + PhysicalData.spin +
-                " | carbonProtons(Z): " + PhysicalData.carbonProtons);
+                " | Z: " + PhysicalData.carbonProtons +
+                " | atoms: " + PhysicalData.atomCount);
         System.out.println("Integrator: DormandPrince853 | relTol: " + PhysicalData.relTol +
                 " | absTol: " + PhysicalData.absTol);
         System.out.println("Running " + totalSimulations + " simulations on " + cores + " cores.");
@@ -71,32 +69,10 @@ public class Main {
                     visualizationElectrons.add(electron);
                 }
 
-                // Tally state
-                String stateString = "";
-                if (electron.isNaN()) {
-                    stateString = "isNaN";
-                    isNaN++;
-                } else {
-                    if (electron.isPos()) { stateString = "isPos"; isPos++; }
-                    if (electron.isNeg()) { stateString = "isNeg"; isNeg++; }
-                    if (electron.is120R()) { stateString = "is120R"; is120R++; }
-                    if (electron.is120L()) { stateString = "is120L"; is120L++; }
-                    if (electron.isRenorm()) { isRenorm++; stateString += "_isRenorm"; }
-                    else { stateString += "_isOK"; }
-                }
-
                 if (completedCount % PhysicalData.progressLogEvery == 0 || completedCount == totalSimulations) {
                     System.out.println(
                             "RUNS FINISHED: " + completedCount +
-                                    " | STATE: " + stateString +
-                                    " | isNaN: " + isNaN +
-                                    " | isRenorm: " + isRenorm +
-                                    " | isNeg: " + isNeg +
-                                    " | isPos: " + isPos +
-                                    " | is120L: " + is120L +
-                                    " | is120R: " + is120R +
                                     electron.getEXIT() +
-                                    electron.getConstraints() +
                                     " | Steps: " + electron.internalCount +
                                     " | Time: " + result.elapsedTimeMs + "ms"
                     );
@@ -126,14 +102,11 @@ public class Main {
         }
 
         // Write full-precision results file for ALL electrons
-        writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs,
-                isNaN, isPos, isNeg, is120L, is120R, isRenorm);
-
+        writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs);
     }
 
     private static void writeResultsFile(List<SimulationResult> allResults,
-            int totalSimulations, int cores, long totalElapsedMs,
-            int isNaN, int isPos, int isNeg, int is120L, int is120R, int isRenorm) {
+            int totalSimulations, int cores, long totalElapsedMs) {
         LocalDateTime now = LocalDateTime.now();
         String timestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String datePart = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
@@ -174,35 +147,21 @@ public class Main {
             out.println("# rangeMax: " + repr(PhysicalData.rangeMax) + " m");
             out.println("# spin: " + PhysicalData.spin);
             out.println("# Z: " + repr(PhysicalData.carbonProtons));
-            out.println("# alpha: " + repr(PhysicalData.alpha));
-            out.println("# reducedBohr: " + repr(PhysicalData.reducedBohr));
-            out.println("# zitterRadius: " + repr(PhysicalData.zitterRadius) + " m");
             out.println("# atomCount: " + PhysicalData.atomCount);
             out.println("# atomSpacing: " + repr(PhysicalData.atomSpacing) + " (reduced) = "
                     + repr(PhysicalData.atomSpacingMeters) + " m");
             out.println("# chainHalfLength: " + repr(PhysicalData.chainHalfLength) + " (reduced)");
-            out.println("# maxTime: " + repr(PhysicalData.maxTime) + " (reduced)");
-            out.println("# Summary: isNaN=" + isNaN + " isPos=" + isPos
-                    + " isNeg=" + isNeg + " is120L=" + is120L
-                    + " is120R=" + is120R + " isRenorm=" + isRenorm);
             out.println("#");
             out.println("# Columns:");
             out.println("# idx qx qy qz rx ry rz vx vy vz ux uy uz"
                     + " energyIn_eV energyOut_eV angle_deg steps"
-                    + " apexCharge apexMass v2 u2 |q-r|2"
-                    + " minZdot2 maxZdot2 minXdot2 maxXdot2 minR maxR"
-                    + " isNaN isPos isNeg elapsedMs"
-                    + " dxZERO_reduced psi0");
+                    + " elapsedMs dxZERO_reduced psi0");
             out.println("#");
 
             for (int i = 0; i < allResults.size(); i++) {
                 SimulationResult r = allResults.get(i);
                 Electron e = r.electron;
                 double[] s = e.electronCurrentState;
-                double v2 = s[Electron.VX]*s[Electron.VX] + s[Electron.VY]*s[Electron.VY] + s[Electron.VZ]*s[Electron.VZ];
-                double u2 = s[Electron.UX]*s[Electron.UX] + s[Electron.UY]*s[Electron.UY] + s[Electron.UZ]*s[Electron.UZ];
-                double dx = s[Electron.QX]-s[Electron.RX], dy = s[Electron.QY]-s[Electron.RY], dz = s[Electron.QZ]-s[Electron.RZ];
-                double qr2 = dx*dx + dy*dy + dz*dz;
 
                 out.print(i);
                 for (int j = 0; j < 12; j++) out.print(" " + repr(s[j]));
@@ -210,17 +169,6 @@ public class Main {
                 out.print(" " + repr(e.getKineticEnergy()));
                 out.print(" " + repr(e.getAngle()));
                 out.print(" " + e.internalCount);
-                out.print(" " + repr(e.minimalDistance));
-                out.print(" " + repr(e.minimalMassDistance));
-                out.print(" " + repr(v2));
-                out.print(" " + repr(u2));
-                out.print(" " + repr(qr2));
-                out.print(" " + repr(e.minZelv2) + " " + repr(e.maxZelv2));
-                out.print(" " + repr(e.minXdot2) + " " + repr(e.maxXdot2));
-                out.print(" " + repr(e.minR) + " " + repr(e.maxR));
-                out.print(" " + (e.isNaN() ? 1 : 0));
-                out.print(" " + (e.isPos() ? 1 : 0));
-                out.print(" " + (e.isNeg() ? 1 : 0));
                 out.print(" " + r.elapsedTimeMs);
                 out.print(" " + repr(e.dxZERO));
                 out.print(" " + repr(e.psi0));
@@ -275,7 +223,7 @@ public class Main {
             }
         });
 
-        // Event handler: stop when electron EXITS detection sphere (qz crosses from negative to positive past detection)
+        // Event handler: stop when electron passes forward detection boundary
         integrator.addEventHandler(new EventHandler() {
             @Override
             public void init(double t0, double[] y0, double t) {}
@@ -294,7 +242,7 @@ public class Main {
             public void resetState(double t, double[] y) {}
         }, 1.0, 1e-6, 100);
 
-        // Also stop if electron goes way past in negative z (backscatter exit)
+        // Event handler: stop on backscatter exit (negative z, decreasing)
         integrator.addEventHandler(new EventHandler() {
             @Override
             public void init(double t0, double[] y0, double t) {}
@@ -314,7 +262,83 @@ public class Main {
             public void resetState(double t, double[] y) {}
         }, 1.0, 1e-6, 100);
 
-        // Event handler: stop if v^2 >= 1 (superluminal)
+        // Event handler: stop if |qx| exceeds 10 Bohr radii (positive side)
+        integrator.addEventHandler(new EventHandler() {
+            @Override
+            public void init(double t0, double[] y0, double t) {}
+
+            @Override
+            public double g(double t, double[] y) {
+                return PhysicalData.xyBoundary - y[0];
+            }
+
+            @Override
+            public Action eventOccurred(double t, double[] y, boolean increasing) {
+                return Action.STOP;
+            }
+
+            @Override
+            public void resetState(double t, double[] y) {}
+        }, 1.0, 1e-6, 100);
+
+        // Event handler: stop if |qx| exceeds 10 Bohr radii (negative side)
+        integrator.addEventHandler(new EventHandler() {
+            @Override
+            public void init(double t0, double[] y0, double t) {}
+
+            @Override
+            public double g(double t, double[] y) {
+                return y[0] + PhysicalData.xyBoundary;
+            }
+
+            @Override
+            public Action eventOccurred(double t, double[] y, boolean increasing) {
+                return Action.STOP;
+            }
+
+            @Override
+            public void resetState(double t, double[] y) {}
+        }, 1.0, 1e-6, 100);
+
+        // Event handler: stop if |qy| exceeds 10 Bohr radii (positive side)
+        integrator.addEventHandler(new EventHandler() {
+            @Override
+            public void init(double t0, double[] y0, double t) {}
+
+            @Override
+            public double g(double t, double[] y) {
+                return PhysicalData.xyBoundary - y[1];
+            }
+
+            @Override
+            public Action eventOccurred(double t, double[] y, boolean increasing) {
+                return Action.STOP;
+            }
+
+            @Override
+            public void resetState(double t, double[] y) {}
+        }, 1.0, 1e-6, 100);
+
+        // Event handler: stop if |qy| exceeds 10 Bohr radii (negative side)
+        integrator.addEventHandler(new EventHandler() {
+            @Override
+            public void init(double t0, double[] y0, double t) {}
+
+            @Override
+            public double g(double t, double[] y) {
+                return y[1] + PhysicalData.xyBoundary;
+            }
+
+            @Override
+            public Action eventOccurred(double t, double[] y, boolean increasing) {
+                return Action.STOP;
+            }
+
+            @Override
+            public void resetState(double t, double[] y) {}
+        }, 1.0, 1e-6, 100);
+
+        // Event handler: stop if v^2 >= 0.9999 (superluminal guard)
         integrator.addEventHandler(new EventHandler() {
             @Override
             public void init(double t0, double[] y0, double t) {}
@@ -327,7 +351,6 @@ public class Main {
 
             @Override
             public Action eventOccurred(double t, double[] y, boolean increasing) {
-                electron.isNaN = true;
                 return Action.STOP;
             }
 
@@ -343,11 +366,7 @@ public class Main {
             integrator.integrate(equations, 0.0, state, PhysicalData.maxTime, state);
             electron.loadState(state);
         } catch (Exception e) {
-            electron.isNaN = true;
+            System.err.println("Integration exception: " + e.getMessage());
         }
-    }
-
-    public static String format(double number) {
-        return FMT.format(number);
     }
 }

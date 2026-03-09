@@ -49,8 +49,7 @@ public:
         std::ostringstream titleSS;
         titleSS << "ELektron2 | E=" << std::fixed << std::setprecision(0) << electron.getKineticEnergy()
                 << "eV | Angle=" << (int)electron.getAngle() << "\xC2\xB0"
-                << " | Spin=" << (PhysicalData::spin >= 0 ? "+" : "") << PhysicalData::spin
-                << " | Apex=" << std::scientific << std::setprecision(6) << electron.minimalDistance;
+                << " | Spin=" << (PhysicalData::spin >= 0 ? "+" : "") << PhysicalData::spin;
 
         const int W = 1000, H = 1000;
         sf::RenderWindow window;  // default-construct (no window yet)
@@ -233,7 +232,6 @@ public:
                 exitTxt.setFillColor(sf::Color(200, 200, 200));
                 std::ostringstream ess;
                 ess << "Start: " << fmt(electron.stateHistory.front()[QX])
-                    << " | Apex: " << fmt(electron.minimalDistance)
                     << " | Finish: " << fmt(electron.stateHistory.back()[QX])
                     << " | Angle: " << (int)electron.getAngle() << "\xC2\xB0"
                     << " | Energy: " << fmt(electron.getKineticEnergy()) << "eV";
@@ -248,9 +246,7 @@ public:
                 consTxt.setFillColor(sf::Color(160, 160, 160));
                 std::ostringstream css;
                 css << "Steps: " << electron.internalCount
-                    << " | Camera pts: " << n
-                    << " | minR: " << std::setprecision(6) << electron.minR
-                    << " | maxR: " << electron.maxR;
+                    << " | Camera pts: " << n;
                 consTxt.setString(css.str());
                 consTxt.setPosition(10, 37);
                 window.draw(consTxt);

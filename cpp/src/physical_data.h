@@ -10,8 +10,8 @@ namespace PhysicalData {
     constexpr Integrator integrator = Integrator::DP853;
 
     // Impact parameter range in meters
-    constexpr double rangeMin = 1e-13;
-    constexpr double rangeMax = 1e-12;
+    constexpr double rangeMin = 1e-12;
+    constexpr double rangeMax = 1e-10;
 
     constexpr int spin = +1;
 
@@ -37,8 +37,8 @@ namespace PhysicalData {
     // Simulation parameters
     constexpr double startEnergy = 5000.0;       // eV
     constexpr double startPos = -(chainHalfLength + 4000.0);  // reduced units, well before first atom
-    constexpr int totalSimulations = 24;
-    constexpr int plotsToShow = 24;
+    constexpr int totalSimulations = 2400;
+    constexpr int plotsToShow = 0;
 
     // CAPD Taylor integrator parameters
     constexpr int capdOrder = 20;
@@ -63,13 +63,8 @@ namespace PhysicalData {
     constexpr double maxTime = 1e6;
 
     // Logging
-    constexpr bool debug = true;
     constexpr bool logInitialConditions = false;
     constexpr int progressLogEvery = 100;
-
-    // Integrity tolerances
-    constexpr double radiusTolerance = 1e-1;
-    constexpr double zdot2Tolerance = 1e-1;
 
     // Dirac frequency in s^-1
     constexpr double zetaFrequency = 1.55268814e21;
@@ -104,5 +99,12 @@ namespace PhysicalData {
 
     // Reduced Bohr radius (in zitter radii)
     inline const double reducedBohr = bohrRadius / zitterRadius; // ~275
+
+    // XY-boundary: stop if |qx| or |qy| exceeds 10 Bohr radii (reduced units)
+    inline const double xyBoundary = 10.0 * reducedBohr;
+
+    // Detector: 1m distance, 1mm × 1mm square aperture centered on z-axis
+    constexpr double detectorDistanceM = 1.0;      // meters
+    constexpr double apertureHalfM = 50e-3;         // half-width in meters (100mm side)
 
 } // namespace PhysicalData

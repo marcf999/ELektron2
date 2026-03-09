@@ -106,6 +106,7 @@ static std::string buildRivasVectorField() {
 struct SimulationResult {
     Electron electron;
     long elapsedMs;
+    bool detected = false;
 };
 
 // ============================================================================
@@ -203,15 +204,17 @@ SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng, bo
             // Check backward detection: qz behind chain and heading away (vz < 0)
             if (state[2] < -PhysicalData::detectionDistance && state[8] < 0) stopped = true;
 
+            // Check xy-boundary: |qx| or |qy| > 10 Bohr radii
+            if (std::abs(state[0]) > PhysicalData::xyBoundary || std::abs(state[1]) > PhysicalData::xyBoundary) stopped = true;
+
             // Check superluminal: v^2 >= 0.9999
             double v2 = state[6]*state[6] + state[7]*state[7] + state[8]*state[8];
-            if (v2 > 0.9999) { electron.isNaN = true; stopped = true; }
+            if (v2 > 0.9999) { stopped = true; }
         }
     } catch (std::exception& e) {
         std::cerr << "CAPD exception: " << e.what() << "\n";
-        electron.isNaN = true;
     } catch (...) {
-        electron.isNaN = true;
+        std::cerr << "CAPD unknown exception\n";
     }
 
     // Final state
@@ -274,15 +277,17 @@ SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, b
             // Check backward detection: qz behind chain and heading away (vz < 0)
             if (state[QZ] < -PhysicalData::detectionDistance && state[VZ] < 0) stopped = true;
 
+            // Check xy-boundary: |qx| or |qy| > 10 Bohr radii
+            if (std::abs(state[QX]) > PhysicalData::xyBoundary || std::abs(state[QY]) > PhysicalData::xyBoundary) stopped = true;
+
             // Check superluminal: v^2 >= 0.9999
             double v2 = state[VX]*state[VX] + state[VY]*state[VY] + state[VZ]*state[VZ];
-            if (v2 > 0.9999) { electron.isNaN = true; stopped = true; }
+            if (v2 > 0.9999) { stopped = true; }
         }
     } catch (std::exception& e) {
         std::cerr << "Boost exception: " << e.what() << "\n";
-        electron.isNaN = true;
     } catch (...) {
-        electron.isNaN = true;
+        std::cerr << "Boost unknown exception\n";
     }
 
     electron.loadState(state);
@@ -329,9 +334,11 @@ SimulationResult runDP853(double rangeMin, double rangeMax, std::mt19937& rng, b
         if (s[QZ] > PhysicalData::detectionDistance) return false;
         // Backward detection
         if (s[QZ] < -PhysicalData::detectionDistance && s[VZ] < 0) return false;
+        // XY-boundary: |qx| or |qy| > 10 Bohr radii
+        if (std::abs(s[QX]) > PhysicalData::xyBoundary || std::abs(s[QY]) > PhysicalData::xyBoundary) return false;
         // Superluminal check
         double v2 = s[VX]*s[VX] + s[VY]*s[VY] + s[VZ]*s[VZ];
-        if (v2 > 0.9999) { electron.isNaN = true; return false; }
+        if (v2 > 0.9999) { return false; }
 
         return true;
     };
@@ -340,9 +347,8 @@ SimulationResult runDP853(double rangeMin, double rangeMax, std::mt19937& rng, b
         integrator.integrate(rhs, 0.0, state.data(), PhysicalData::maxTime, callback);
     } catch (std::exception& e) {
         std::cerr << "DP853 exception: " << e.what() << "\n";
-        electron.isNaN = true;
     } catch (...) {
-        electron.isNaN = true;
+        std::cerr << "DP853 unknown exception\n";
     }
 
     // Final state (already loaded via callback, but ensure consistency)
@@ -412,16 +418,17 @@ int main() {
     }
 
     std::cout << "Running " << totalSimulations << " simulations on " << cores << " cores.\n";
+    std::cout << "Detector: " << PhysicalData::detectorDistanceM << "m distance, "
+              << (PhysicalData::apertureHalfM * 2000.0) << "mm x "
+              << (PhysicalData::apertureHalfM * 2000.0) << "mm aperture\n";
 
     auto totalStart = std::chrono::steady_clock::now();
 
     // Collect results
     std::vector<SimulationResult> results(totalSimulations);
     std::atomic<int> completedCount{0};
+    std::atomic<int> detectedCount{0};
     std::mutex printMutex;
-
-    int isNaN_total = 0, isRenorm_total = 0, isNeg_total = 0, isPos_total = 0;
-    int is120L_total = 0, is120R_total = 0;
 
     #pragma omp parallel
     {
@@ -434,49 +441,47 @@ int main() {
 
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < totalSimulations; i++) {
-            bool wantCamera = (i < plotsToShow);
-            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng, wantCamera);
+            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng, true);
 
             int count = ++completedCount;
 
-            if (count % PhysicalData::progressLogEvery == 0 || count == totalSimulations) {
-                auto& e = results[i].electron;
+            // Check detector hit: forward electron, project to detector plane
+            auto& e = results[i].electron;
+            const State& s = e.currentState;
+            if (s[VZ] > 0) {
+                double xAtDet = (s[VX] / s[VZ]) * PhysicalData::detectorDistanceM;
+                double yAtDet = (s[VY] / s[VZ]) * PhysicalData::detectorDistanceM;
+                if (std::abs(xAtDet) < PhysicalData::apertureHalfM &&
+                    std::abs(yAtDet) < PhysicalData::apertureHalfM) {
+                    results[i].detected = true;
+                    int det = ++detectedCount;
+                    std::lock_guard<std::mutex> lock(printMutex);
+                    std::cout << "DETECTED #" << det << " (electron " << i << ")"
+                              << " | Steps: " << e.internalCount
+                              << e.getEXIT()
+                              << " | xDet: " << std::scientific << std::setprecision(3) << xAtDet * 1e3 << "mm"
+                              << " | yDet: " << yAtDet * 1e3 << "mm"
+                              << " | Time: " << results[i].elapsedMs << "ms\n";
+                }
+            }
+
+            if (count % 48 == 0 || count == totalSimulations) {
                 std::lock_guard<std::mutex> lock(printMutex);
-                std::cout << "RUNS FINISHED: " << count
-                          << " | Steps: " << e.internalCount
-                          << e.getEXIT()
-                          << e.getConstraints()
-                          << " | Time: " << results[i].elapsedMs << "ms\n";
+                std::cout << "Progress: " << count << "/" << totalSimulations
+                          << " | Detected: " << detectedCount.load() << "\n";
             }
         }
-    }
-
-    // Tally results
-    for (int i = 0; i < totalSimulations; i++) {
-        auto& e = results[i].electron;
-        if (e.isNaN) { isNaN_total++; continue; }
-        if (e.isPos()) isPos_total++;
-        if (e.isNeg()) isNeg_total++;
-        if (e.is120R()) is120R_total++;
-        if (e.is120L()) is120L_total++;
-        if (e.isRenorm) isRenorm_total++;
     }
 
     auto totalEnd = std::chrono::steady_clock::now();
     long totalMs = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - totalStart).count();
 
-    std::cout << "\n=== SUMMARY ===\n"
-              << "isNaN: " << isNaN_total
-              << " | isPos: " << isPos_total
-              << " | isNeg: " << isNeg_total
-              << " | is120L: " << is120L_total
-              << " | is120R: " << is120R_total
-              << " | isRenorm: " << isRenorm_total << "\n";
-    std::cout << "TOTAL TIME FOR " << totalSimulations << " SIMULATIONS: "
-              << totalMs << "ms (" << cores << " cores)\n";
+    std::cout << "\nTOTAL TIME FOR " << totalSimulations << " SIMULATIONS: "
+              << totalMs << "ms (" << cores << " cores)"
+              << " | DETECTED: " << detectedCount.load() << "/" << totalSimulations << "\n";
 
     // ================================================================
-    // Write full-precision results file for ALL electrons
+    // Write full-precision results file for DETECTED electrons only
     // ================================================================
     {
         // Timestamp
@@ -535,6 +540,10 @@ int main() {
         out << "# Cores: " << cores << "\n";
         out << "# Total time: " << totalMs << " ms\n";
         out << "# Total simulations: " << totalSimulations << "\n";
+        out << "# Detected: " << detectedCount.load() << "\n";
+        out << "# Detector: " << PhysicalData::detectorDistanceM << " m, "
+            << (PhysicalData::apertureHalfM * 2000.0) << " mm x "
+            << (PhysicalData::apertureHalfM * 2000.0) << " mm aperture\n";
         out << "# startEnergy: " << PhysicalData::startEnergy << " eV\n";
         out << "# startPos: " << PhysicalData::startPos << " (reduced)\n";
         out << "# detectionDistance: " << PhysicalData::detectionDistance << " (reduced)\n";
@@ -550,27 +559,23 @@ int main() {
             << PhysicalData::atomSpacingMeters << " m\n";
         out << "# chainHalfLength: " << PhysicalData::chainHalfLength << " (reduced)\n";
         out << "# maxTime: " << PhysicalData::maxTime << " (reduced)\n";
-        out << "# Summary: isNaN=" << isNaN_total << " isPos=" << isPos_total
-            << " isNeg=" << isNeg_total << " is120L=" << is120L_total
-            << " is120R=" << is120R_total << " isRenorm=" << isRenorm_total << "\n";
         out << "#\n";
         out << "# Columns:\n";
         out << "# idx qx qy qz rx ry rz vx vy vz ux uy uz"
             << " energyIn_eV energyOut_eV angle_deg steps"
-            << " apexCharge apexMass v2 u2 |q-r|2"
-            << " minZdot2 maxZdot2 minXdot2 maxXdot2 minR maxR"
-            << " isNaN isPos isNeg elapsedMs"
-            << " dxZERO_reduced psi0\n";
+            << " elapsedMs dxZERO_reduced psi0"
+            << " xDet_mm yDet_mm\n";
         out << "#\n";
 
+        int written = 0;
         for (int i = 0; i < totalSimulations; i++) {
+            if (!results[i].detected) continue;
             auto& e = results[i].electron;
             const State& s = e.currentState;
-            double v2 = s[VX]*s[VX] + s[VY]*s[VY] + s[VZ]*s[VZ];
-            double u2 = s[UX]*s[UX] + s[UY]*s[UY] + s[UZ]*s[UZ];
-            double qr2 = (s[QX]-s[RX])*(s[QX]-s[RX]) + (s[QY]-s[RY])*(s[QY]-s[RY]) + (s[QZ]-s[RZ])*(s[QZ]-s[RZ]);
+            double xAtDet = (s[VX] / s[VZ]) * PhysicalData::detectorDistanceM;
+            double yAtDet = (s[VY] / s[VZ]) * PhysicalData::detectorDistanceM;
 
-            out << i
+            out << written
                 << " " << s[QX] << " " << s[QY] << " " << s[QZ]
                 << " " << s[RX] << " " << s[RY] << " " << s[RZ]
                 << " " << s[VX] << " " << s[VY] << " " << s[VZ]
@@ -579,38 +584,30 @@ int main() {
                 << " " << e.getKineticEnergy()
                 << " " << e.getAngle()
                 << " " << e.internalCount
-                << " " << e.minimalDistance
-                << " " << e.minimalMassDistance
-                << " " << v2
-                << " " << u2
-                << " " << qr2
-                << " " << e.minZelv2 << " " << e.maxZelv2
-                << " " << e.minXdot2 << " " << e.maxXdot2
-                << " " << e.minR << " " << e.maxR
-                << " " << (e.isNaN ? 1 : 0)
-                << " " << (e.isPos() ? 1 : 0)
-                << " " << (e.isNeg() ? 1 : 0)
                 << " " << results[i].elapsedMs
                 << " " << e.dxZERO
                 << " " << e.psi0
+                << " " << xAtDet * 1e3
+                << " " << yAtDet * 1e3
                 << "\n";
+            written++;
         }
 
         out.close();
-        std::cout << "Wrote " << totalSimulations << " electron results to " << resultsPath << "\n";
+        std::cout << "Wrote " << written << " detected electrons (of " << totalSimulations
+                  << " total) to " << resultsPath << "\n";
     }
 
     // ================================================================
-    // Show PlotDots visualization for the first plotsToShow electrons
+    // Show PlotDots visualization for DETECTED electrons only
     // Each window runs in its own thread — all visible simultaneously
     // ================================================================
 #ifdef HAVE_SFML
     PlotDots::closeAll.store(false);
-    int toShow = std::min(plotsToShow, totalSimulations);
     std::vector<std::thread> plotThreads;
-    for (int i = 0; i < toShow; i++) {
-        if (results[i].electron.stateCamera.size() >= 2) {
-            std::cout << "Launching PlotDots for electron " << i
+    for (int i = 0; i < totalSimulations; i++) {
+        if (results[i].detected && results[i].electron.stateCamera.size() >= 2) {
+            std::cout << "Launching PlotDots for detected electron " << i
                       << " (" << results[i].electron.stateCamera.size() << " camera points)\n";
             plotThreads.emplace_back([&results, i]() {
                 PlotDots::show(results[i].electron);
