@@ -3,4 +3,5 @@ out/
 *.iws
 .idea/
 cpp/build/
+cpp/build-cuda/
 *.dat

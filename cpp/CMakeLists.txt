@@ -82,3 +82,36 @@ endif()
 if(OpenMP_CXX_FOUND)
     target_link_libraries(elektron2 PRIVATE OpenMP::OpenMP_CXX)
 endif()
+
+# ---- CUDA target (optional — GPU-parallel DP853) ----
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+
+    # Auto-detect GPU architecture
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES native)
+    endif()
+
+    # FP32 build (fast — 64x more throughput on consumer GPUs)
+    add_executable(elektron2_cuda src/cuda/elektron_cuda.cu)
+    set_target_properties(elektron2_cuda PROPERTIES CUDA_SEPARABLE_COMPILATION OFF)
+    target_compile_options(elektron2_cuda PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-O2 --use_fast_math -DUSE_FLOAT>
+    )
+
+    # FP64 build (precise — slow on consumer GPUs, fast on datacenter GPUs)
+    add_executable(elektron2_cuda_fp64 src/cuda/elektron_cuda.cu)
+    set_target_properties(elektron2_cuda_fp64 PROPERTIES CUDA_SEPARABLE_COMPILATION OFF)
+    target_compile_options(elektron2_cuda_fp64 PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-O2>
+    )
+
+    message(STATUS "CUDA found (${CMAKE_CUDA_COMPILER}) — building elektron2_cuda (FP32) + elektron2_cuda_fp64")
+    message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+else()
+    message(STATUS "CUDA not found — skipping elektron2_cuda target")
+endif()
