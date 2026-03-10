@@ -95,8 +95,10 @@ cpp/
     ├── dp853_integrator.h      ← Self-contained DP8(5,3) matching commons-math3
     ├── main.cpp                ← Triple integrator, virtual detector, detected-only output
     ├── capd_logger_stub.cpp    ← Logger stubs for standalone CAPD usage
-    └── cuda/
-        └── elektron_cuda.cu    ← GPU-parallel DP853 (self-contained, FP32/FP64)
+    ├── cuda/
+    │   └── elektron_cuda.cu    ← NVIDIA GPU-parallel DP853 (CUDA, FP32/FP64)
+    └── rocm/
+        └── elektron_rocm.cpp   ← AMD GPU-parallel DP853 (HIP, FP32/FP64)
 ```
 
 - **Triple integrator** selected via compile-time enum in `physical_data.h`:
@@ -108,7 +110,8 @@ cpp/
 - **CAPD Taylor (order 20)**: String-based vector field parsed by `DMap`, integrated via `DOdeSolver`/`DTimeMap`. Tiered adaptive stepping: divisor 200 (dist<1), 100 (dist<5), 50 (dist<20), 10 (dist<100), 2 (far).
 - **Boost.Odeint DP5(4)**: `runge_kutta_dopri5` with controlled stepper, abs/relTol = 1e-12. Fully adaptive.
 - **DP853 (self-contained)**: `dp853_integrator.h`, template<int N>, exact Butcher tableau match to Apache commons-math3 DormandPrince853. No external dependencies. Stack arrays only, no dynamic allocation. CUDA-portable. Default integrator.
-- **CUDA**: `elektron_cuda.cu`, one thread per electron, `__constant__` memory for Butcher tableau + physics constants. Two CMake targets: FP32 (`--use_fast_math`) and FP64.
+- **CUDA**: `elektron_cuda.cu`, one thread per electron, `__constant__` memory for Butcher tableau + physics constants. Two CMake targets: FP32 (`--use_fast_math`) and FP64. Shelved on consumer GPUs (1/64 FP64).
+- **ROCm/HIP**: `elektron_rocm.cpp`, HIP port of CUDA kernel. Identical physics, `cuda*` API → `hip*` API. Two CMake targets: FP32 and FP64. AMD Instinct GPUs have full FP64 throughput (1/2 of FP32).
 - **Parallelism**: OpenMP `#pragma omp parallel for schedule(dynamic)`, per-thread RNG.
 - **Termination**: Forward/backward z-detection, XY-boundary (10 Bohr radii), superluminal guard.
 - **Virtual detector**: 1m distance, square aperture. Projects final velocity `(vx/vz, vy/vz) * distance` to detector plane. Only detected electrons written to results file and shown in PlotDots.
@@ -436,6 +439,24 @@ The code is preserved in `cpp/src/cuda/elektron_cuda.cu` for potential future us
 - Progress logging interval: every 48 completions in C++ (was `progressLogEvery = 100`).
 - Detector distance and aperture printed at startup.
 
+### March 9, 2026 — ROCm/HIP port
+
+**31) ROCm/HIP port of DP853 integrator**
+- Created `cpp/src/rocm/elektron_rocm.cpp` — mechanical port of `elektron_cuda.cu` to AMD's HIP API.
+- All CUDA API calls replaced with HIP equivalents (`cuda*` → `hip*`). Kernel syntax (`<<<grid, block>>>`), device qualifiers (`__constant__`, `__device__`, `__global__`), and math intrinsics are identical in HIP.
+- GPU info prints `gcnArchName` (AMD GCN/CDNA architecture) instead of SM version.
+- Output file tagged `rocm-dp853` instead of `cuda-dp853`.
+- **Motivation**: AMD Instinct GPUs (MI250/MI300) have full FP64 throughput (1/2 of FP32), unlike consumer NVIDIA GPUs (1/64). The DP853 integrator with 1e-12 tolerances requires FP64 — making AMD datacenter GPUs a viable target where NVIDIA consumer GPUs failed.
+- **CMake**: Two targets added — `elektron2_rocm` (FP32) and `elektron2_rocm_fp64` (FP64). `find_package(hip QUIET)` detects ROCm installation. Gracefully skips if ROCm not installed.
+- **Build**: Requires ROCm toolkit with `hipcc` compiler. CMake links `hip::device`.
+  ```bash
+  cd cpp && mkdir build-rocm && cd build-rocm
+  cmake .. -DCMAKE_BUILD_TYPE=Release
+  make elektron2_rocm_fp64
+  ./elektron2_rocm_fp64
+  ```
+- **Not yet tested** — requires AMD GPU hardware with ROCm driver.
+
 ---
 
 ## Integrator Comparison
@@ -503,13 +524,14 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 
 ## Relationship to ELektron (CAPD/JNI version)
 
-| Aspect | ELektron | ELektron2 (Java) | ELektron2 (C++) | ELektron2 (CUDA) |
-|--------|----------|-------------------|-----------------|------------------|
-| Integrator | CAPD Taylor-20 via JNI | DormandPrince853 | CAPD / Boost / DP853 | DP853 (FP32/FP64) |
-| Language | Java + C++ | Pure Java | C++17 | CUDA C++ |
-| Step control | Manual | Automatic | CAPD: manual / DP853,Boost: auto | Automatic |
-| Native code | libjniTaylor.so (WSL) | None | CAPD .so + Boost headers (optional) | CUDA toolkit |
-| fix() | Yes | No | No | No |
-| Thread safety | Fragile (JNI crashes) | Clean | CAPD: critical / DP853,Boost: clean | N/A (GPU threads) |
-| Visualization | Basic PlotDots | Enhanced (zoom, pan) | SFML PlotDots | None (results only) |
-| Status | Legacy | Active | Active (default: DP853) | Shelved (consumer GPU too slow) |
+| Aspect | ELektron | ELektron2 (Java) | ELektron2 (C++) | ELektron2 (CUDA) | ELektron2 (ROCm) |
+|--------|----------|-------------------|-----------------|------------------|------------------|
+| Integrator | CAPD Taylor-20 via JNI | DormandPrince853 | CAPD / Boost / DP853 | DP853 (FP32/FP64) | DP853 (FP32/FP64) |
+| Language | Java + C++ | Pure Java | C++17 | CUDA C++ | HIP C++ |
+| Step control | Manual | Automatic | CAPD: manual / DP853,Boost: auto | Automatic | Automatic |
+| Native code | libjniTaylor.so (WSL) | None | CAPD .so + Boost headers (optional) | CUDA toolkit | ROCm toolkit |
+| fix() | Yes | No | No | No | No |
+| Thread safety | Fragile (JNI crashes) | Clean | CAPD: critical / DP853,Boost: clean | N/A (GPU threads) | N/A (GPU threads) |
+| Visualization | Basic PlotDots | Enhanced (zoom, pan) | SFML PlotDots | None (results only) | None (results only) |
+| FP64 throughput | N/A | N/A | N/A | 1/64 (consumer) | 1/2 (Instinct) |
+| Status | Legacy | Active | Active (default: DP853) | Shelved (consumer GPU too slow) | Untested (needs AMD GPU) |

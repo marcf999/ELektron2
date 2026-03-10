@@ -115,3 +115,21 @@ if(CMAKE_CUDA_COMPILER)
 else()
     message(STATUS "CUDA not found — skipping elektron2_cuda target")
 endif()
+
+# ---- ROCm/HIP target (optional — AMD GPU-parallel DP853) ----
+find_package(hip QUIET)
+if(hip_FOUND)
+    # FP32 build
+    add_executable(elektron2_rocm src/rocm/elektron_rocm.cpp)
+    target_link_libraries(elektron2_rocm PRIVATE hip::device)
+    target_compile_options(elektron2_rocm PRIVATE -DUSE_FLOAT -O2)
+
+    # FP64 build (AMD Instinct GPUs have full FP64 throughput — 1/2 of FP32)
+    add_executable(elektron2_rocm_fp64 src/rocm/elektron_rocm.cpp)
+    target_link_libraries(elektron2_rocm_fp64 PRIVATE hip::device)
+    target_compile_options(elektron2_rocm_fp64 PRIVATE -O2)
+
+    message(STATUS "ROCm/HIP found — building elektron2_rocm (FP32) + elektron2_rocm_fp64")
+else()
+    message(STATUS "ROCm/HIP not found — skipping elektron2_rocm target")
+endif()
