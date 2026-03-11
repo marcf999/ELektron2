@@ -53,8 +53,8 @@ namespace PhysConst {
     constexpr double detectionDistance = chainHalfLength + 4000.0;
     constexpr double maxTime = 1e6;
 
-    constexpr double rangeMin = 1e-13;
-    constexpr double rangeMax = 1e-12;
+    constexpr double rangeMin = 1e-12;
+    constexpr double rangeMax = 1e-10;
     constexpr int spin = +1;
 
     constexpr double carbonProtons = 6.0;
