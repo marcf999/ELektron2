@@ -11,7 +11,7 @@
 set -euo pipefail
 
 BINARY="./elektron2_rocm_fp64"
-ELECTRONS="${1:-1000000}"
+ELECTRONS="${1:-100000}"
 
 # Energy scan range: 10 points centered on 5000 eV
 E_START=4991
