@@ -77,8 +77,8 @@ public class PhysicalData {
     // Reduced Bohr radius (in zitter radii)
     public static double reducedBohr = bohrRadius / zitterRadius; // ~275
 
-    // XY-boundary: stop if |qx| or |qy| exceeds 10 Bohr radii (reduced units)
-    public static double xyBoundary = 10.0 * reducedBohr;
+    // XY-boundary: stop if |qx| or |qy| exceeds 3 Bohr radii (reduced units)
+    public static double xyBoundary = 3.0 * reducedBohr;
 
     // Detector: 1m distance, 100mm × 100mm square aperture centered on z-axis
     public static double detectorDistanceM = 1.0d;      // meters

@@ -101,19 +101,19 @@ cpp/
         └── elektron_rocm.cpp   ← AMD GPU-parallel DP853 (HIP, FP32/FP64)
 ```
 
-- **Triple integrator** selected via compile-time enum in `physical_data.h`:
+- **Dual integrator** selected via compile-time enum in `physical_data.h`:
   ```cpp
-  enum class Integrator { CAPD, Boost, DP853 };
+  enum class Integrator { Boost, DP853 };
   constexpr Integrator integrator = Integrator::DP853;  // default
   ```
 - Uses `if constexpr` — unused integrators are dead-code eliminated (zero overhead).
-- **CAPD Taylor (order 20)**: String-based vector field parsed by `DMap`, integrated via `DOdeSolver`/`DTimeMap`. Tiered adaptive stepping: divisor 200 (dist<1), 100 (dist<5), 50 (dist<20), 10 (dist<100), 2 (far).
+- **CAPD Taylor**: Removed (March 10, 2026). Was string-based vector field parsed by `DMap` — non-thread-safe, required external `.so` library, poor parallel scaling.
 - **Boost.Odeint DP5(4)**: `runge_kutta_dopri5` with controlled stepper, abs/relTol = 1e-12. Fully adaptive.
 - **DP853 (self-contained)**: `dp853_integrator.h`, template<int N>, exact Butcher tableau match to Apache commons-math3 DormandPrince853. No external dependencies. Stack arrays only, no dynamic allocation. CUDA-portable. Default integrator.
 - **CUDA**: `elektron_cuda.cu`, one thread per electron, `__constant__` memory for Butcher tableau + physics constants. Two CMake targets: FP32 (`--use_fast_math`) and FP64. Shelved on consumer GPUs (1/64 FP64).
 - **ROCm/HIP**: `elektron_rocm.cpp`, HIP port of CUDA kernel. Identical physics, `cuda*` API → `hip*` API. Two CMake targets: FP32 and FP64. AMD Instinct GPUs have full FP64 throughput (1/2 of FP32).
 - **Parallelism**: OpenMP `#pragma omp parallel for schedule(dynamic)`, per-thread RNG.
-- **Termination**: Forward/backward z-detection, XY-boundary (10 Bohr radii), superluminal guard.
+- **Termination**: Forward/backward z-detection, XY-boundary (3 Bohr radii), superluminal guard.
 - **Virtual detector**: 1m distance, square aperture. Projects final velocity `(vx/vz, vy/vz) * distance` to detector plane. Only detected electrons written to results file and shown in PlotDots.
 - **Visualization**: SFML PlotDots with parallel windows (Q/Esc close-all), atom markers on chain. Only detected electrons displayed.
 - **Output**: Results `.dat` file with detected electrons only, including `xDet_mm`/`yDet_mm` columns.
@@ -516,9 +516,11 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 2. **Energy conservation (Java)**: Energy out shows ~5000.07–5000.22 eV for 5000 eV in. Small gain (~0.004%) likely from integrator drift. Tighter tolerances or symplectic integrator would help.
 3. ~~**CAPD sign discrepancy**~~: Fixed in entry §19. All integrators now use negative (attractive) sign on dv/dt.
 4. **Constraints**: |u| = 1 and |q-r|² = 1 maintained to ~1e-7 by Java integrator tolerances (no fix()). C++ integrators hold tighter. Monitor for drift in long runs.
-5. **CAPD scaling**: Critical section for `DMap` parsing limits parallel scaling. Investigate CAPD copy constructors or thread-local pre-initialization.
-6. **Detector aperture mismatch**: Java uses 1mm × 1mm aperture (`apertureHalfM = 0.5e-3`), C++ uses 100mm × 100mm (`apertureHalfM = 50e-3`). Should be unified.
-7. **Java detector**: Java `PhysicalData` defines `detectorDistanceM` and `apertureHalfM` but `Main.java` does not yet implement the detector projection logic. Only C++ filters by detected electrons.
+5. ~~**CAPD scaling**~~: Resolved by removing CAPD entirely (entry §33).
+6. ~~**Detector aperture mismatch**~~: Unified to 100mm × 100mm across all layers (entry §29).
+7. ~~**Java detector**~~: Java now implements detector projection with detected-only output (entry §29).
+8. **ROCm straggler effect**: Batch completion time dominated by slowest electron. With 10,000 electrons the last few percent can take 2–5× longer than average. Consider adaptive batch sizing or kernel timeout.
+9. **GPU occupancy**: DP853 kernel uses ~1.5 KB local memory per thread (k[13][12] doubles), limiting occupancy to ~1 wavefront per CU. Investigate register spilling / LDS usage trade-offs.
 
 ---
 
@@ -526,20 +528,70 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 
 | Aspect | ELektron | ELektron2 (Java) | ELektron2 (C++) | ELektron2 (CUDA) | ELektron2 (ROCm) |
 |--------|----------|-------------------|-----------------|------------------|------------------|
-| Integrator | CAPD Taylor-20 via JNI | DormandPrince853 | CAPD / Boost / DP853 | DP853 (FP32/FP64) | DP853 (FP32/FP64) |
+| Integrator | CAPD Taylor-20 via JNI | DormandPrince853 | Boost / DP853 | DP853 (FP32/FP64) | DP853 (FP32/FP64) |
 | Language | Java + C++ | Pure Java | C++17 | CUDA C++ | HIP C++ |
 | Step control | Manual | Automatic | CAPD: manual / DP853,Boost: auto | Automatic | Automatic |
-| Native code | libjniTaylor.so (WSL) | None | CAPD .so + Boost headers (optional) | CUDA toolkit | ROCm toolkit |
+| Native code | libjniTaylor.so (WSL) | None | Boost headers (optional) | CUDA toolkit | ROCm toolkit |
 | fix() | Yes | No | No | No | No |
-| Thread safety | Fragile (JNI crashes) | Clean | CAPD: critical / DP853,Boost: clean | N/A (GPU threads) | N/A (GPU threads) |
+| Thread safety | Fragile (JNI crashes) | Clean | Clean (DP853/Boost) | N/A (GPU threads) | N/A (GPU threads) |
 | Visualization | Basic PlotDots | Enhanced (zoom, pan) | SFML PlotDots | None (results only) | None (results only) |
 | FP64 throughput | N/A | N/A | N/A | 1/64 (consumer) | 1/2 (Instinct) |
-| Status | Legacy | Active | Active (default: DP853) | Shelved (consumer GPU too slow) | Untested (needs AMD GPU) |
+| Status | Legacy | Active | Active (default: DP853) | Shelved (consumer GPU too slow) | Active (MI300X tested) |
 
-### March 10, 2026 — Repository housekeeping
+### March 10, 2026 — Repository housekeeping and cleanup
 
 **32) GitHub default branch fix**
 - GitHub repository default branch was `main` (containing only a LICENSE file from repo creation). All code lived on `master`.
 - Switched default branch from `main` to `master` via GitHub Settings → Branches so the repo landing page shows the full codebase and LAB-NOTES.md.
 
-Hello Marc
+**33) Progress output and CAPD removal**
+- Added elapsed time to progress output in all three layers (Java, C++, ROCm).
+- ROCm: changed from single monolithic kernel launch to batched execution with progress reporting between batches.
+- **CAPD removed entirely**: Deleted `capd_logger_stub.cpp`, removed `Integrator::CAPD` enum, `buildRivasVectorField()`, `runCapd()`, CMake CAPD detection, and `-frounding-math` flags. CAPD was non-thread-safe, required external `.so`, and scaled poorly on many cores.
+- C++ integrator enum now has only `Boost` and `DP853`.
+
+### March 11, 2026 — ROCm on AMD Instinct MI300X
+
+**34) HotAIsle GPU cloud deployment**
+- Deployed to HotAIsle neocloud instance with AMD Instinct MI300X VF (gfx942, 304 CUs, ~192 GB VRAM).
+- ROCm 7.2.0, Ubuntu 22.04.
+- Build required `-DCMAKE_PREFIX_PATH=/opt/rocm-7.2.0` for CMake to find `hip-config.cmake`.
+- Fixed CMakeLists.txt to use CMake HIP language support (`enable_language(HIP)` + `set_source_files_properties(... LANGUAGE HIP)`) — standard `c++` compiler doesn't understand `--offload-arch=gfx942` flag from `hip::device`.
+
+**35) ROCm kernel hang — missing XY boundary check**
+- Initial runs hung indefinitely with zero output. Root cause: **the XY boundary check was missing from the ROCm kernel**. The C++ and Java layers stop electrons that scatter beyond `xyBoundary` in the lateral plane, but the GPU kernel had no such check. Electrons trapped in lateral orbits near the atom chain integrated forever.
+- Added `EXIT_XY_BOUNDARY` exit code, `d_xyBoundary` constant memory, and lateral escape check: `if (|qx| > xyBoundary || |qy| > xyBoundary)`.
+- Also fixed impact parameter range mismatch: ROCm had `[1e-13, 1e-12]`, corrected to `[1e-12, 1e-10]` matching C++/Java.
+- Added device-side `printf` checkpoint every 100,000 steps (first 2 threads) for in-kernel progress monitoring.
+
+**36) GPU utilization — batch size tuning**
+- First working run: 64 electrons in 213s — but only 1 of 304 CUs was active (`batchSize=64`, `blockSize=64` → `gridSize=1`).
+- Increased to `batchSize=totalSimulations`, then tuned to `batchSize=4096` (64 blocks) for balance between GPU fill and progress granularity.
+- Full GPU run: **10,000 electrons in 275 seconds** (4.6 minutes).
+
+**37) First GPU vs CPU comparison (10,000 electrons, 5000 eV)**
+
+| | CPU (8 threads, WSL) | GPU (MI300X) |
+|---|---|---|
+| Time | 26.5 min | 4.6 min |
+| Throughput | 6.3 e/s | 36 e/s |
+| Detected | 355 (3.5%) | 379 (3.8%) |
+| Avg steps | ~1.2M | 809K |
+| xyEscape | — | 7,974 (79.7%) |
+| Speedup | 1× | **5.8×** |
+
+- Physics matches across platforms: ~3.5–3.8% detection rate at 5 keV on 30-atom carbon chain.
+- 79.7% of electrons escape via XY boundary (lateral scatter dominates at these impact parameters).
+- GPU per-thread performance is lower than CPU (branchy adaptive integrator with ~1.5 KB register/local memory per thread), but massive parallelism compensates.
+- Straggler effect: batch completion time dominated by slowest electron. Batch size of 4096 balances fill vs progress.
+
+**38) XY boundary tightened to 3 Bohr radii**
+- Changed `xyBoundary` from `10 * reducedBohr` (~2,745 reduced units) to `3 * reducedBohr` (~823 reduced units) across all three layers (Java, C++, ROCm).
+- Tighter boundary terminates laterally-scattered electrons sooner, reducing wasted integration steps.
+
+**39) ROCm throughput optimizations**
+- **Block size 64→256**: 4 wavefronts per block instead of 1. Lets the hardware scheduler hide memory latency by switching between wavefronts within a CU.
+- **Dynamic batch sizing**: `batchSize = CUs × 256` (= 77,824 on MI300X with 304 CUs) instead of fixed 4096. Ensures all CUs have work.
+- **2-stream overlapping**: Two HIP streams alternate batches. While one batch's stragglers finish, the next batch starts on free CUs. Eliminates idle time between batches.
+- **Async memcpy**: `hipMemcpyAsync` on the kernel's stream instead of blocking `hipMemcpy`, overlapping D→H transfer with next kernel.
+- **Throughput reported**: Summary now prints electrons/sec for easy comparison.

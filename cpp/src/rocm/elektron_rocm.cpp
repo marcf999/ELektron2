@@ -217,7 +217,7 @@ __constant__ real d_rB;
 __constant__ real d_detectionDistance;
 __constant__ real d_maxTime;
 __constant__ real d_m0c2;
-__constant__ real d_xyBoundary;   // lateral escape cutoff (10 * reducedBohr)
+__constant__ real d_xyBoundary;   // lateral escape cutoff (3 * reducedBohr)
 
 // Butcher tableau
 __constant__ real d_C[12];
@@ -250,7 +250,7 @@ void initDeviceConstants() {
     val = (real)detectionDistance; HIP_CHECK(hipMemcpyToSymbol(d_detectionDistance, &val, sizeof(real)));
     val = (real)maxTime;        HIP_CHECK(hipMemcpyToSymbol(d_maxTime, &val, sizeof(real)));
     val = (real)m0c2;           HIP_CHECK(hipMemcpyToSymbol(d_m0c2, &val, sizeof(real)));
-    val = (real)(10.0 * reducedBohr); HIP_CHECK(hipMemcpyToSymbol(d_xyBoundary, &val, sizeof(real)));
+    val = (real)(3.0 * reducedBohr); HIP_CHECK(hipMemcpyToSymbol(d_xyBoundary, &val, sizeof(real)));
 
     // Butcher tableau
     real h_C[12], h_A[12][12], h_B[13], h_E1[12], h_E2[12];
@@ -517,7 +517,7 @@ __device__ IntegrationResult dp853_integrate(real* y, int globalIdx) {
             for (int j = 0; j < 12; j++) y[j] = y1[j];
             for (int j = 0; j < 12; j++) k[0][j] = k[12][j]; // FSAL
 
-            // ---- Checkpoint: print every 100000 steps (first 2 threads only to reduce spam) ----
+            // ---- Checkpoint: print every 100000 steps (first 2 threads only) ----
             if ((result.nSteps % 100000) == 0 && globalIdx < 2) {
                 printf("[GPU e#%d] step %d | t=%.1f | qz=%.1f | h=%.2e\n",
                        globalIdx, result.nSteps, (double)t,
@@ -775,21 +775,31 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipMemcpy(d_inputs, h_inputs.data(),
         totalSimulations * sizeof(ElectronInput), hipMemcpyHostToDevice));
 
-    // Launch in batches so we can report progress between each batch.
-    // MI300X has 304 CUs; each block of 64 threads occupies 1 CU.
-    // Batch of 4096 = 64 blocks — fills ~21% of CUs, gives progress every few minutes.
-    // Bigger batches improve GPU utilization but lose progress granularity.
-    int blockSize = 64;  // one wavefront per block (register-heavy kernel)
-    int batchSize = std::min(4096, totalSimulations);
+    // Launch in batches with multiple HIP streams for overlapping execution.
+    // MI300X has 304 CUs; we want enough blocks to saturate all CUs.
+    // blockSize=256 (4 wavefronts/block) lets the scheduler hide latency.
+    // batchSize=19456 (76 blocks × 256 threads) fills all 304 CUs with ~1 block/4 CUs.
+    // With 2 streams, one batch can run while the other's stragglers finish.
+    int blockSize = 256;
+    int batchSize = std::min(totalSimulations, prop.multiProcessorCount * 256);
 
-    printf("Running %d electrons in batches of %d (block size %d)\n",
-           totalSimulations, batchSize, blockSize);
-    printf("XY boundary: %.1f reduced units (10 * Bohr radius)\n",
-           10.0 * PhysConst::reducedBohr);
+    int gridSize = (batchSize + blockSize - 1) / blockSize;
+    printf("Running %d electrons in batches of %d (block %d, grid %d)\n",
+           totalSimulations, batchSize, blockSize, gridSize);
+    printf("XY boundary: %.1f reduced units (3 * Bohr radius)\n",
+           3.0 * PhysConst::reducedBohr);
     printf("Detector: %.0fmm x %.0fmm aperture at %.2fm\n",
            PhysConst::apertureHalfM * 2e3, PhysConst::apertureHalfM * 2e3,
            PhysConst::detectorDistanceM);
     fflush(stdout);
+
+    // Create multiple HIP streams for overlapping kernel execution.
+    // While one batch's stragglers finish, the next batch starts on free CUs.
+    constexpr int NUM_STREAMS = 2;
+    hipStream_t streams[NUM_STREAMS];
+    for (int s = 0; s < NUM_STREAMS; s++) {
+        HIP_CHECK(hipStreamCreate(&streams[s]));
+    }
 
     auto kernelStart = std::chrono::steady_clock::now();
 
@@ -797,50 +807,103 @@ int main(int argc, char** argv) {
     int launched = 0;
     int finished = 0;
     int detectedSoFar = 0;
+    int streamIdx = 0;
 
+    // Launch first batch on stream 0
     while (launched < totalSimulations) {
         int thisBatch = std::min(batchSize, totalSimulations - launched);
-        int gridSize = (thisBatch + blockSize - 1) / blockSize;
+        int thisGrid = (thisBatch + blockSize - 1) / blockSize;
+        int curStream = streamIdx % NUM_STREAMS;
 
-        integrateKernel<<<gridSize, blockSize>>>(
-            d_inputs + launched, d_outputs + launched, thisBatch, launched);
-        HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
-
-        // Copy this batch back immediately
-        HIP_CHECK(hipMemcpy(h_outputs.data() + launched, d_outputs + launched,
-            thisBatch * sizeof(ElectronOutput), hipMemcpyDeviceToHost));
-
-        // Quick-tally this batch for progress
-        for (int i = launched; i < launched + thisBatch; i++) {
-            auto& o = h_outputs[i];
-            o.detected = false;
-            o.xDet_mm = 0;
-            o.yDet_mm = 0;
-            double vx = (double)o.finalState[6];
-            double vy = (double)o.finalState[7];
-            double vz = (double)o.finalState[8];
-            if (vz > 0) {
-                double xAtDet = (vx / vz) * PhysConst::detectorDistanceM;
-                double yAtDet = (vy / vz) * PhysConst::detectorDistanceM;
-                if (std::abs(xAtDet) < PhysConst::apertureHalfM &&
-                    std::abs(yAtDet) < PhysConst::apertureHalfM) {
-                    o.detected = true;
-                    o.xDet_mm = xAtDet * 1e3;
-                    o.yDet_mm = yAtDet * 1e3;
-                    detectedSoFar++;
-                }
-            }
+        // If we're reusing a stream, sync it first to ensure previous batch is done
+        if (launched >= NUM_STREAMS * batchSize) {
+            HIP_CHECK(hipStreamSynchronize(streams[curStream]));
         }
 
-        launched += thisBatch;
-        finished = launched;
+        integrateKernel<<<thisGrid, blockSize, 0, streams[curStream]>>>(
+            d_inputs + launched, d_outputs + launched, thisBatch, launched);
+        HIP_CHECK(hipGetLastError());
 
+        // Queue async copy back on same stream
+        HIP_CHECK(hipMemcpyAsync(h_outputs.data() + launched, d_outputs + launched,
+            thisBatch * sizeof(ElectronOutput), hipMemcpyDeviceToHost, streams[curStream]));
+
+        launched += thisBatch;
+        streamIdx++;
+
+        // Sync the OTHER stream to tally completed work and report progress
+        int prevStream = (curStream + 1) % NUM_STREAMS;
+        if (streamIdx > 1) {
+            HIP_CHECK(hipStreamSynchronize(streams[prevStream]));
+
+            // Tally the batch that just finished on prevStream
+            int prevStart = finished;
+            int prevEnd = std::min(launched - thisBatch, totalSimulations);
+            // Only tally if there's new work (prevEnd > prevStart)
+            if (prevEnd > prevStart) {
+                for (int i = prevStart; i < prevEnd; i++) {
+                    auto& o = h_outputs[i];
+                    o.detected = false;
+                    o.xDet_mm = 0;
+                    o.yDet_mm = 0;
+                    double vx = (double)o.finalState[6];
+                    double vy = (double)o.finalState[7];
+                    double vz = (double)o.finalState[8];
+                    if (vz > 0) {
+                        double xAtDet = (vx / vz) * PhysConst::detectorDistanceM;
+                        double yAtDet = (vy / vz) * PhysConst::detectorDistanceM;
+                        if (std::abs(xAtDet) < PhysConst::apertureHalfM &&
+                            std::abs(yAtDet) < PhysConst::apertureHalfM) {
+                            o.detected = true;
+                            o.xDet_mm = xAtDet * 1e3;
+                            o.yDet_mm = yAtDet * 1e3;
+                            detectedSoFar++;
+                        }
+                    }
+                }
+                finished = prevEnd;
+
+                auto now = std::chrono::steady_clock::now();
+                long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - kernelStart).count();
+                double pct = 100.0 * finished / totalSimulations;
+                printf("Progress: %d/%d (%.1f%%) | Detected: %d | Elapsed: %.1fs\n",
+                       finished, totalSimulations, pct, detectedSoFar, elapsedMs / 1000.0);
+                fflush(stdout);
+            }
+        }
+    }
+
+    // Sync all streams and tally remaining
+    for (int s = 0; s < NUM_STREAMS; s++) {
+        HIP_CHECK(hipStreamSynchronize(streams[s]));
+    }
+    // Tally any remaining un-tallied electrons
+    for (int i = finished; i < totalSimulations; i++) {
+        auto& o = h_outputs[i];
+        o.detected = false;
+        o.xDet_mm = 0;
+        o.yDet_mm = 0;
+        double vx = (double)o.finalState[6];
+        double vy = (double)o.finalState[7];
+        double vz = (double)o.finalState[8];
+        if (vz > 0) {
+            double xAtDet = (vx / vz) * PhysConst::detectorDistanceM;
+            double yAtDet = (vy / vz) * PhysConst::detectorDistanceM;
+            if (std::abs(xAtDet) < PhysConst::apertureHalfM &&
+                std::abs(yAtDet) < PhysConst::apertureHalfM) {
+                o.detected = true;
+                o.xDet_mm = xAtDet * 1e3;
+                o.yDet_mm = yAtDet * 1e3;
+                detectedSoFar++;
+            }
+        }
+    }
+    finished = totalSimulations;
+    {
         auto now = std::chrono::steady_clock::now();
         long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - kernelStart).count();
-        double pct = 100.0 * finished / totalSimulations;
-        printf("Progress: %d/%d (%.1f%%) | Detected: %d | Elapsed: %.1fs\n",
-               finished, totalSimulations, pct, detectedSoFar, elapsedMs / 1000.0);
+        printf("Progress: %d/%d (100.0%%) | Detected: %d | Elapsed: %.1fs\n",
+               finished, totalSimulations, detectedSoFar, elapsedMs / 1000.0);
         fflush(stdout);
     }
 
@@ -848,7 +911,10 @@ int main(int argc, char** argv) {
     long kernelMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         kernelEnd - kernelStart).count();
 
-    // Free device memory
+    // Cleanup streams and device memory
+    for (int s = 0; s < NUM_STREAMS; s++) {
+        HIP_CHECK(hipStreamDestroy(streams[s]));
+    }
     HIP_CHECK(hipFree(d_inputs));
     HIP_CHECK(hipFree(d_outputs));
 
@@ -886,7 +952,8 @@ int main(int argc, char** argv) {
     printf("Energy: %.0f eV\n", energyEV);
     printf("Total steps: %ld | Avg steps/electron: %ld\n",
            totalSteps, totalSteps / totalSimulations);
-    printf("KERNEL TIME: %ld ms\n", kernelMs);
+    double throughput = totalSimulations / (kernelMs / 1000.0);
+    printf("KERNEL TIME: %ld ms (%.1f electrons/sec)\n", kernelMs, throughput);
     printf("TOTAL TIME FOR %d SIMULATIONS: %ld ms\n", totalSimulations, totalMs);
 
     // ================================================================
