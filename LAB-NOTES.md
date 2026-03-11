@@ -535,3 +535,11 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 | Visualization | Basic PlotDots | Enhanced (zoom, pan) | SFML PlotDots | None (results only) | None (results only) |
 | FP64 throughput | N/A | N/A | N/A | 1/64 (consumer) | 1/2 (Instinct) |
 | Status | Legacy | Active | Active (default: DP853) | Shelved (consumer GPU too slow) | Untested (needs AMD GPU) |
+
+### March 10, 2026 — Repository housekeeping
+
+**32) GitHub default branch fix**
+- GitHub repository default branch was `main` (containing only a LICENSE file from repo creation). All code lived on `master`.
+- Switched default branch from `main` to `master` via GitHub Settings → Branches so the repo landing page shows the full codebase and LAB-NOTES.md.
+
+Hello Marc

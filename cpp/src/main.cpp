@@ -113,9 +113,9 @@ struct SimulationResult {
 // CAPD Taylor integrator path
 // ============================================================================
 #if HAVE_CAPD
-SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
+SimulationResult runCapd(double energyEV, double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
 
-    Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    Electron electron(energyEV, rangeMin, rangeMax, rng);
     electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
@@ -235,13 +235,13 @@ SimulationResult runCapd(double rangeMin, double rangeMax, std::mt19937& rng, bo
 // ============================================================================
 // Boost.Odeint Dormand-Prince 5(4) integrator path
 // ============================================================================
-SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
+SimulationResult runBoost(double energyEV, double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
 
     using namespace boost::numeric::odeint;
     typedef runge_kutta_dopri5<State> dopri5_type;
     typedef controlled_runge_kutta<dopri5_type> controlled_type;
 
-    Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    Electron electron(energyEV, rangeMin, rangeMax, rng);
     electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
@@ -301,9 +301,9 @@ SimulationResult runBoost(double rangeMin, double rangeMax, std::mt19937& rng, b
 // Self-contained Dormand-Prince 8(5,3) integrator path
 // Matches Apache commons-math3 DormandPrince853Integrator exactly
 // ============================================================================
-SimulationResult runDP853(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
+SimulationResult runDP853(double energyEV, double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
 
-    Electron electron(PhysicalData::startEnergy, rangeMin, rangeMax, rng);
+    Electron electron(energyEV, rangeMin, rangeMax, rng);
     electron.recordCamera = recordCamera;
     auto startTime = std::chrono::steady_clock::now();
 
@@ -363,24 +363,24 @@ SimulationResult runDP853(double rangeMin, double rangeMax, std::mt19937& rng, b
 // ============================================================================
 // Dispatcher — compile-time integrator selection
 // ============================================================================
-SimulationResult runSingleSimulation(double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
+SimulationResult runSingleSimulation(double energyEV, double rangeMin, double rangeMax, std::mt19937& rng, bool recordCamera = false) {
     if constexpr (PhysicalData::integrator == PhysicalData::Integrator::CAPD) {
 #if HAVE_CAPD
-        return runCapd(rangeMin, rangeMax, rng, recordCamera);
+        return runCapd(energyEV, rangeMin, rangeMax, rng, recordCamera);
 #else
         static_assert(false, "CAPD selected but capd/capdlib.h not found. Install CAPD or switch to Boost/DP853.");
 #endif
     } else if constexpr (PhysicalData::integrator == PhysicalData::Integrator::DP853) {
-        return runDP853(rangeMin, rangeMax, rng, recordCamera);
+        return runDP853(energyEV, rangeMin, rangeMax, rng, recordCamera);
     } else {
-        return runBoost(rangeMin, rangeMax, rng, recordCamera);
+        return runBoost(energyEV, rangeMin, rangeMax, rng, recordCamera);
     }
 }
 
 // ============================================================================
 // Main
 // ============================================================================
-int main() {
+int main(int argc, char** argv) {
 
 #ifdef HAVE_SFML
     XInitThreads();  // Required for multi-threaded X11/SFML windows
@@ -389,6 +389,13 @@ int main() {
     int totalSimulations = PhysicalData::totalSimulations;
     int plotsToShow = PhysicalData::plotsToShow;
 
+    // Parse args: elektron2 [numElectrons] [energyEV]
+    if (argc > 1) totalSimulations = std::atoi(argv[1]);
+    if (totalSimulations < 1) totalSimulations = PhysicalData::totalSimulations;
+    double energyEV = PhysicalData::startEnergy;
+    if (argc > 2) energyEV = std::atof(argv[2]);
+    if (energyEV <= 0) energyEV = PhysicalData::startEnergy;
+
     int cores = 1;
 #ifdef _OPENMP
     cores = omp_get_max_threads();
@@ -396,7 +403,7 @@ int main() {
 
     std::cout << "PARAMS | rangeMin: " << PhysicalData::rangeMin
               << " | rangeMax: " << PhysicalData::rangeMax
-              << " | startEnergy: " << PhysicalData::startEnergy
+              << " | startEnergy: " << energyEV
               << " | spin: " << PhysicalData::spin
               << " | carbonProtons(Z): " << PhysicalData::carbonProtons
               << " | atoms: " << PhysicalData::atomCount
@@ -441,7 +448,7 @@ int main() {
 
         #pragma omp for schedule(dynamic)
         for (int i = 0; i < totalSimulations; i++) {
-            results[i] = runSingleSimulation(PhysicalData::rangeMin, PhysicalData::rangeMax, rng, true);
+            results[i] = runSingleSimulation(energyEV, PhysicalData::rangeMin, PhysicalData::rangeMax, rng, true);
 
             int count = ++completedCount;
 
@@ -478,7 +485,11 @@ int main() {
 
     std::cout << "\nTOTAL TIME FOR " << totalSimulations << " SIMULATIONS: "
               << totalMs << "ms (" << cores << " cores)"
-              << " | DETECTED: " << detectedCount.load() << "/" << totalSimulations << "\n";
+              << " | DETECTED: " << detectedCount.load() << "/" << totalSimulations
+              << " (" << std::fixed << std::setprecision(1)
+              << (100.0 * detectedCount.load() / totalSimulations) << "%)"
+              << " | Energy: " << energyEV << " eV\n";
+    std::cout << std::defaultfloat;
 
     // ================================================================
     // Write full-precision results file for DETECTED electrons only
@@ -504,11 +515,13 @@ int main() {
             integratorTag = "boost";
         }
 
-        // results/<date>_<time>_cpp-<integrator>_<iterations>.dat
+        // results/<date>_<time>_cpp-<integrator>_<energy>_<iterations>.dat
         // Write to project root /results/ via relative path from build dir
+        char energyStr[32];
+        std::snprintf(energyStr, sizeof(energyStr), "%.0feV", energyEV);
         std::string resultsDir = "/mnt/c/Users/marcf/IdeaProjects/ELektron2/results/";
         std::string resultsFile = std::string(dateBuf) + "_" + timeFmt
-            + "_cpp-" + integratorTag + "_" + std::to_string(totalSimulations) + ".dat";
+            + "_cpp-" + integratorTag + "_" + energyStr + "_" + std::to_string(totalSimulations) + ".dat";
         std::string resultsPath = resultsDir + resultsFile;
 
         std::ofstream out(resultsPath);
@@ -541,10 +554,11 @@ int main() {
         out << "# Total time: " << totalMs << " ms\n";
         out << "# Total simulations: " << totalSimulations << "\n";
         out << "# Detected: " << detectedCount.load() << "\n";
+        out << "# Detected ratio: " << (100.0 * detectedCount.load() / totalSimulations) << "%\n";
         out << "# Detector: " << PhysicalData::detectorDistanceM << " m, "
             << (PhysicalData::apertureHalfM * 2000.0) << " mm x "
             << (PhysicalData::apertureHalfM * 2000.0) << " mm aperture\n";
-        out << "# startEnergy: " << PhysicalData::startEnergy << " eV\n";
+        out << "# startEnergy: " << energyEV << " eV\n";
         out << "# startPos: " << PhysicalData::startPos << " (reduced)\n";
         out << "# detectionDistance: " << PhysicalData::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysicalData::rangeMin << " m\n";

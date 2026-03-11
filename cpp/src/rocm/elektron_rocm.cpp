@@ -67,7 +67,10 @@ namespace PhysConst {
     constexpr double dp853MinStep = 1e-10;
     constexpr double dp853MaxStep = 10.0;
 
-    constexpr int defaultSimulations = 1024;
+    constexpr double detectorDistanceM = 1.0;     // 1 metre
+    constexpr double apertureHalfM    = 50e-3;    // 100mm × 100mm square aperture
+
+    constexpr int defaultSimulations = 100;
     constexpr int progressLogEvery = 100;
 
     // Computed at startup
@@ -576,6 +579,9 @@ struct ElectronOutput {
     real minimalDistance;
     double dxZERO;
     double psi0;
+    double xDet_mm;     // detector x coordinate in mm (0 if not detected)
+    double yDet_mm;     // detector y coordinate in mm (0 if not detected)
+    bool   detected;    // true if electron hit detector aperture
 };
 
 // ============================================================================
@@ -695,10 +701,13 @@ double getAngle(const real* state) {
 int main(int argc, char** argv) {
     PhysConst::init();
 
-    // Parse args: elektron2_rocm [numElectrons]
+    // Parse args: elektron2_rocm [numElectrons] [energyEV]
     int totalSimulations = PhysConst::defaultSimulations;
     if (argc > 1) totalSimulations = std::atoi(argv[1]);
     if (totalSimulations < 1) totalSimulations = 1;
+    double energyEV = PhysConst::startEnergy;
+    if (argc > 2) energyEV = std::atof(argv[2]);
+    if (energyEV <= 0) energyEV = PhysConst::startEnergy;
 
     // GPU info
     int deviceId;
@@ -713,7 +722,7 @@ int main(int argc, char** argv) {
 
     printf("PARAMS | rangeMin: %.2e | rangeMax: %.2e | startEnergy: %.0f eV"
            " | spin: %d | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
-           PhysConst::rangeMin, PhysConst::rangeMax, PhysConst::startEnergy,
+           PhysConst::rangeMin, PhysConst::rangeMax, energyEV,
            PhysConst::spin, PhysConst::carbonProtons,
            PhysConst::atomCount, PhysConst::atomSpacing);
 #ifdef USE_FLOAT
@@ -736,7 +745,7 @@ int main(int argc, char** argv) {
     std::vector<ElectronInput> h_inputs(totalSimulations);
     std::mt19937 rng(std::random_device{}());
     for (int i = 0; i < totalSimulations; i++) {
-        h_inputs[i] = generateElectron(PhysConst::startEnergy,
+        h_inputs[i] = generateElectron(energyEV,
             PhysConst::rangeMin, PhysConst::rangeMax, rng);
     }
 
@@ -777,8 +786,9 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipFree(d_inputs));
     HIP_CHECK(hipFree(d_outputs));
 
-    // Tally results
+    // Tally results + detector check
     int isNaN_total = 0, isPos_total = 0, isNeg_total = 0;
+    int detectedCount = 0;
     long totalSteps = 0;
 
     for (int i = 0; i < totalSimulations; i++) {
@@ -791,6 +801,25 @@ int main(int argc, char** argv) {
         }
         totalSteps += o.nSteps;
 
+        // Virtual detector: project forward-going electrons onto detector plane
+        o.detected = false;
+        o.xDet_mm = 0;
+        o.yDet_mm = 0;
+        double vx = (double)o.finalState[6];
+        double vy = (double)o.finalState[7];
+        double vz = (double)o.finalState[8];
+        if (vz > 0) {
+            double xAtDet = (vx / vz) * PhysConst::detectorDistanceM;
+            double yAtDet = (vy / vz) * PhysConst::detectorDistanceM;
+            if (std::abs(xAtDet) < PhysConst::apertureHalfM &&
+                std::abs(yAtDet) < PhysConst::apertureHalfM) {
+                o.detected = true;
+                o.xDet_mm = xAtDet * 1e3;
+                o.yDet_mm = yAtDet * 1e3;
+                detectedCount++;
+            }
+        }
+
         if (totalSimulations <= 100 ||
             (i+1) % PhysConst::progressLogEvery == 0 ||
             i == totalSimulations - 1) {
@@ -799,8 +828,9 @@ int main(int argc, char** argv) {
                                   (o.exitCode == EXIT_BACKWARD) ? "BACK" :
                                   (o.exitCode == EXIT_SUPERLUMINAL) ? "NaN" :
                                   (o.exitCode == EXIT_MAXSTEPS) ? "MAXS" : "TIME";
-            printf("[%5d] Steps: %7d | Exit: %4s | Apex: %.4e | Eout: %.4e eV\n",
-                   i, o.nSteps, exitStr, (double)o.minimalDistance, eOut);
+            printf("[%5d] Steps: %7d | Exit: %4s | Apex: %.4e | Eout: %.4e eV%s\n",
+                   i, o.nSteps, exitStr, (double)o.minimalDistance, eOut,
+                   o.detected ? " *DET*" : "");
         }
     }
 
@@ -811,6 +841,13 @@ int main(int argc, char** argv) {
     printf("\n=== SUMMARY ===\n");
     printf("isNaN: %d | isPos: %d | isNeg: %d\n",
            isNaN_total, isPos_total, isNeg_total);
+    printf("DETECTED: %d/%d (%.1f%%)\n",
+           detectedCount, totalSimulations,
+           100.0 * detectedCount / totalSimulations);
+    printf("Detector: %.0fmm x %.0fmm aperture at %.2fm\n",
+           PhysConst::apertureHalfM * 2e3, PhysConst::apertureHalfM * 2e3,
+           PhysConst::detectorDistanceM);
+    printf("Energy: %.0f eV\n", energyEV);
     printf("Total steps: %ld | Avg steps/electron: %ld\n",
            totalSteps, totalSteps / totalSimulations);
     printf("KERNEL TIME: %ld ms\n", kernelMs);
@@ -828,8 +865,10 @@ int main(int argc, char** argv) {
         std::strftime(timeFmt, sizeof(timeFmt), "%H%M%S", std::localtime(&nowTime));
 
         std::string resultsDir = "/mnt/c/Users/marcf/IdeaProjects/ELektron2/results/";
+        char energyStr[32];
+        std::snprintf(energyStr, sizeof(energyStr), "%.0feV", energyEV);
         std::string resultsFile = std::string(dateBuf) + "_" + timeFmt
-            + "_rocm-dp853_" + std::to_string(totalSimulations) + ".dat";
+            + "_rocm-dp853_" + energyStr + "_" + std::to_string(totalSimulations) + ".dat";
         std::string resultsPath = resultsDir + resultsFile;
 
         std::ofstream out(resultsPath);
@@ -849,7 +888,12 @@ int main(int argc, char** argv) {
         out << "# Kernel time: " << kernelMs << " ms\n";
         out << "# Total time: " << totalMs << " ms\n";
         out << "# Total simulations: " << totalSimulations << "\n";
-        out << "# startEnergy: " << PhysConst::startEnergy << " eV\n";
+        out << "# Detected: " << detectedCount << "\n";
+        out << "# Detected ratio: " << (100.0 * detectedCount / totalSimulations) << "%\n";
+        out << "# Detector: " << PhysConst::apertureHalfM * 2e3 << "mm x "
+            << PhysConst::apertureHalfM * 2e3 << "mm at "
+            << PhysConst::detectorDistanceM << "m\n";
+        out << "# startEnergy: " << energyEV << " eV\n";
         out << "# startPos: " << PhysConst::startPos << " (reduced)\n";
         out << "# detectionDistance: " << PhysConst::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysConst::rangeMin << " m\n";
@@ -870,17 +914,19 @@ int main(int argc, char** argv) {
         out << "# Columns:\n";
         out << "# idx qx qy qz rx ry rz vx vy vz ux uy uz"
             << " energyIn_eV energyOut_eV angle_deg steps"
-            << " apexCharge exitCode dxZERO_reduced psi0\n";
+            << " apexCharge exitCode dxZERO_reduced psi0"
+            << " xDet_mm yDet_mm\n";
         out << "#\n";
 
+        int written = 0;
         for (int i = 0; i < totalSimulations; i++) {
             auto& o = h_outputs[i];
+            if (!o.detected) continue;
             const real* s = o.finalState;
-            double v2 = (double)s[6]*s[6] + (double)s[7]*s[7] + (double)s[8]*s[8];
             double eOut = getKineticEnergy(s);
             double angle = getAngle(s);
 
-            out << i;
+            out << written;
             for (int j = 0; j < 12; j++) out << " " << (double)s[j];
             out << " " << o.initialKE
                 << " " << eOut
@@ -890,11 +936,14 @@ int main(int argc, char** argv) {
                 << " " << o.exitCode
                 << " " << o.dxZERO
                 << " " << o.psi0
+                << " " << o.xDet_mm
+                << " " << o.yDet_mm
                 << "\n";
+            written++;
         }
 
         out.close();
-        printf("Wrote %d electron results to %s\n", totalSimulations, resultsPath.c_str());
+        printf("Wrote %d detected electrons (of %d) to %s\n", written, totalSimulations, resultsPath.c_str());
     }
 
     return 0;

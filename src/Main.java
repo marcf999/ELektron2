@@ -21,6 +21,9 @@ public class Main {
     private static class SimulationResult {
         Electron electron;
         long elapsedTimeMs;
+        boolean detected;
+        double xDet_mm;
+        double yDet_mm;
     }
 
     public static void main(String[] args) {
@@ -29,14 +32,26 @@ public class Main {
         int plotsToShow = PhysicalData.plotsToShow;
         int cores = Runtime.getRuntime().availableProcessors();
 
+        // Parse args: Main [numElectrons] [energyEV]
+        if (args.length > 0) {
+            try { totalSimulations = Integer.parseInt(args[0]); } catch (NumberFormatException ignored) {}
+        }
+        double energyEV = PhysicalData.startEnergy;
+        if (args.length > 1) {
+            try { energyEV = Double.parseDouble(args[1]); } catch (NumberFormatException ignored) {}
+        }
+        if (energyEV <= 0) energyEV = PhysicalData.startEnergy;
+
         double rangeMin = PhysicalData.rangeMin, rangeMax = PhysicalData.rangeMax;
 
         System.out.println("PARAMS | rangeMin: " + rangeMin + " | rangeMax: " + rangeMax +
-                " | startEnergy: " + PhysicalData.startEnergy + " | spin: " + PhysicalData.spin +
+                " | startEnergy: " + energyEV + " | spin: " + PhysicalData.spin +
                 " | Z: " + PhysicalData.carbonProtons +
                 " | atoms: " + PhysicalData.atomCount);
         System.out.println("Integrator: DormandPrince853 | relTol: " + PhysicalData.relTol +
                 " | absTol: " + PhysicalData.absTol);
+        System.out.println("Detector: " + (PhysicalData.apertureHalfM * 2000.0) + "mm x "
+                + (PhysicalData.apertureHalfM * 2000.0) + "mm at " + PhysicalData.detectorDistanceM + "m");
         System.out.println("Running " + totalSimulations + " simulations on " + cores + " cores.");
 
         ExecutorService executor = Executors.newFixedThreadPool(cores);
@@ -47,13 +62,15 @@ public class Main {
         int completedCount = 0;
 
         // Pre-submit up to maxInFlight tasks
+        final double energy = energyEV;  // effectively final for lambdas
         while (submitted < totalSimulations && submitted < maxInFlight) {
-            submitTask(completionService, rangeMin, rangeMax, submitted < plotsToShow);
+            submitTask(completionService, energy, rangeMin, rangeMax, submitted < plotsToShow);
             submitted++;
         }
 
         List<Electron> visualizationElectrons = new ArrayList<>();
         List<SimulationResult> allResults = new ArrayList<>();
+        AtomicInteger detectedCount = new AtomicInteger(0);
         long totalStartMs = System.currentTimeMillis();
 
         try {
@@ -65,22 +82,41 @@ public class Main {
                 Electron electron = result.electron;
                 allResults.add(result);
 
+                // Virtual detector: project forward-going electrons onto detector plane
+                double[] s = electron.electronCurrentState;
+                double vx = s[6], vy = s[7], vz = s[8];
+                if (vz > 0) {
+                    double xAtDet = (vx / vz) * PhysicalData.detectorDistanceM;
+                    double yAtDet = (vy / vz) * PhysicalData.detectorDistanceM;
+                    if (Math.abs(xAtDet) < PhysicalData.apertureHalfM &&
+                        Math.abs(yAtDet) < PhysicalData.apertureHalfM) {
+                        result.detected = true;
+                        result.xDet_mm = xAtDet * 1e3;
+                        result.yDet_mm = yAtDet * 1e3;
+                        int det = detectedCount.incrementAndGet();
+                        System.out.println("DETECTED #" + det +
+                                " | Steps: " + electron.internalCount +
+                                electron.getEXIT() +
+                                " | xDet: " + String.format("%.3e", xAtDet * 1e3) + "mm" +
+                                " | yDet: " + String.format("%.3e", yAtDet * 1e3) + "mm" +
+                                " | Time: " + result.elapsedTimeMs + "ms");
+                    }
+                }
+
                 if (visualizationElectrons.size() < plotsToShow) {
                     visualizationElectrons.add(electron);
                 }
 
                 if (completedCount % PhysicalData.progressLogEvery == 0 || completedCount == totalSimulations) {
                     System.out.println(
-                            "RUNS FINISHED: " + completedCount +
-                                    electron.getEXIT() +
-                                    " | Steps: " + electron.internalCount +
-                                    " | Time: " + result.elapsedTimeMs + "ms"
+                            "Progress: " + completedCount + "/" + totalSimulations +
+                                    " | Detected: " + detectedCount.get()
                     );
                 }
 
                 // Submit next task if more remain
                 if (submitted < totalSimulations) {
-                    submitTask(completionService, rangeMin, rangeMax, submitted < plotsToShow);
+                    submitTask(completionService, energy, rangeMin, rangeMax, submitted < plotsToShow);
                     submitted++;
                 }
             }
@@ -94,7 +130,10 @@ public class Main {
         }
 
         long totalElapsedMs = System.currentTimeMillis() - totalStartMs;
-        System.out.println("TOTAL TIME FOR " + totalSimulations + " SIMULATIONS: " + totalElapsedMs + "ms (" + cores + " cores)");
+        System.out.printf("TOTAL TIME FOR %d SIMULATIONS: %dms (%d cores) | DETECTED: %d/%d (%.1f%%) | Energy: %.0f eV%n",
+                totalSimulations, totalElapsedMs, cores,
+                detectedCount.get(), totalSimulations,
+                100.0 * detectedCount.get() / totalSimulations, energy);
 
         for (Electron electron : visualizationElectrons) {
             Electron e = electron;
@@ -102,17 +141,18 @@ public class Main {
         }
 
         // Write full-precision results file for ALL electrons
-        writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs);
+        writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs, energy, detectedCount.get());
     }
 
     private static void writeResultsFile(List<SimulationResult> allResults,
-            int totalSimulations, int cores, long totalElapsedMs) {
+            int totalSimulations, int cores, long totalElapsedMs,
+            double energyEV, int detectedCount) {
         LocalDateTime now = LocalDateTime.now();
         String timestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String datePart = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
         String timePart = now.format(DateTimeFormatter.ofPattern("HHmmss"));
 
-        // results/<date>_<time>_java-dp853_<iterations>.dat
+        // results/<date>_<time>_java-dp853_<energy>_<iterations>.dat
         // Resolve relative to project root (parent of src/)
         File resultsDir = new File(System.getProperty("user.dir")).toPath()
                 .resolve("results").toFile();
@@ -122,7 +162,8 @@ public class Main {
                     .resolve("../results").normalize().toFile();
         }
         if (!resultsDir.exists()) resultsDir.mkdirs();
-        String resultsFile = datePart + "_" + timePart + "_java-dp853_" + totalSimulations + ".dat";
+        String resultsFile = datePart + "_" + timePart + "_java-dp853_"
+                + String.format("%.0f", energyEV) + "eV_" + totalSimulations + ".dat";
         File resultsPath = new File(resultsDir, resultsFile);
 
         try (PrintWriter out = new PrintWriter(new FileWriter(resultsPath))) {
@@ -140,7 +181,12 @@ public class Main {
             out.println("# Cores: " + cores);
             out.println("# Total time: " + totalElapsedMs + " ms");
             out.println("# Total simulations: " + totalSimulations);
-            out.println("# startEnergy: " + repr(PhysicalData.startEnergy) + " eV");
+            out.println("# Detected: " + detectedCount);
+            out.println("# Detected ratio: " + (100.0 * detectedCount / totalSimulations) + "%");
+            out.println("# Detector: " + (PhysicalData.apertureHalfM * 2000.0) + "mm x "
+                    + (PhysicalData.apertureHalfM * 2000.0) + "mm at "
+                    + PhysicalData.detectorDistanceM + "m");
+            out.println("# startEnergy: " + repr(energyEV) + " eV");
             out.println("# startPos: " + repr(PhysicalData.startPos) + " (reduced)");
             out.println("# detectionDistance: " + repr(PhysicalData.detectionDistance) + " (reduced)");
             out.println("# rangeMin: " + repr(PhysicalData.rangeMin) + " m");
@@ -155,15 +201,18 @@ public class Main {
             out.println("# Columns:");
             out.println("# idx qx qy qz rx ry rz vx vy vz ux uy uz"
                     + " energyIn_eV energyOut_eV angle_deg steps"
-                    + " elapsedMs dxZERO_reduced psi0");
+                    + " elapsedMs dxZERO_reduced psi0"
+                    + " xDet_mm yDet_mm");
             out.println("#");
 
+            int written = 0;
             for (int i = 0; i < allResults.size(); i++) {
                 SimulationResult r = allResults.get(i);
+                if (!r.detected) continue;
                 Electron e = r.electron;
                 double[] s = e.electronCurrentState;
 
-                out.print(i);
+                out.print(written);
                 for (int j = 0; j < 12; j++) out.print(" " + repr(s[j]));
                 out.print(" " + repr(e.initialKineticEnergy));
                 out.print(" " + repr(e.getKineticEnergy()));
@@ -172,10 +221,13 @@ public class Main {
                 out.print(" " + r.elapsedTimeMs);
                 out.print(" " + repr(e.dxZERO));
                 out.print(" " + repr(e.psi0));
+                out.print(" " + repr(r.xDet_mm));
+                out.print(" " + repr(r.yDet_mm));
                 out.println();
+                written++;
             }
 
-            System.out.println("Wrote " + allResults.size() + " electron results to " + resultsPath.getPath());
+            System.out.println("Wrote " + written + " detected electrons (of " + allResults.size() + ") to " + resultsPath.getPath());
         } catch (Exception ex) {
             System.err.println("Failed to write " + resultsPath.getPath() + ": " + ex.getMessage());
         }
@@ -186,9 +238,9 @@ public class Main {
         return Double.toString(v);
     }
 
-    private static void submitTask(CompletionService<SimulationResult> cs, double rangeMin, double rangeMax, boolean recordCamera) {
+    private static void submitTask(CompletionService<SimulationResult> cs, double energyEV, double rangeMin, double rangeMax, boolean recordCamera) {
         cs.submit(() -> {
-            Electron electron = new Electron(PhysicalData.startEnergy, rangeMin, rangeMax);
+            Electron electron = new Electron(energyEV, rangeMin, rangeMax);
             electron.recordCamera = recordCamera;
             long startMs = System.currentTimeMillis();
             runSingleSimulation(electron);

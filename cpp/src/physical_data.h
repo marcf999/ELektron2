@@ -37,7 +37,7 @@ namespace PhysicalData {
     // Simulation parameters
     constexpr double startEnergy = 5000.0;       // eV
     constexpr double startPos = -(chainHalfLength + 4000.0);  // reduced units, well before first atom
-    constexpr int totalSimulations = 2400;
+    constexpr int totalSimulations = 100;
     constexpr int plotsToShow = 0;
 
     // CAPD Taylor integrator parameters

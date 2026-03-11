@@ -26,7 +26,7 @@ public class PhysicalData {
     // Simulation parameters
     public static double startEnergy = 5000d;       // eV
     public static double startPos = -(chainHalfLength + 4000);  // reduced units, well before first atom
-    public static int totalSimulations = 240;
+    public static int totalSimulations = 100;
     public static int plotsToShow = 0;
 
     // Integrator tolerances
