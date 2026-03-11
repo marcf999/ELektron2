@@ -217,6 +217,7 @@ __constant__ real d_rB;
 __constant__ real d_detectionDistance;
 __constant__ real d_maxTime;
 __constant__ real d_m0c2;
+__constant__ real d_xyBoundary;   // lateral escape cutoff (10 * reducedBohr)
 
 // Butcher tableau
 __constant__ real d_C[12];
@@ -249,6 +250,7 @@ void initDeviceConstants() {
     val = (real)detectionDistance; HIP_CHECK(hipMemcpyToSymbol(d_detectionDistance, &val, sizeof(real)));
     val = (real)maxTime;        HIP_CHECK(hipMemcpyToSymbol(d_maxTime, &val, sizeof(real)));
     val = (real)m0c2;           HIP_CHECK(hipMemcpyToSymbol(d_m0c2, &val, sizeof(real)));
+    val = (real)(10.0 * reducedBohr); HIP_CHECK(hipMemcpyToSymbol(d_xyBoundary, &val, sizeof(real)));
 
     // Butcher tableau
     real h_C[12], h_A[12][12], h_B[13], h_E1[12], h_E2[12];
@@ -434,6 +436,7 @@ __device__ real dp853_computeInitialStep(real t, const real* y,
 #define EXIT_SUPERLUMINAL 2
 #define EXIT_TIMEOUT      3
 #define EXIT_MAXSTEPS     4
+#define EXIT_XY_BOUNDARY  5
 
 // Safety valve: max steps before giving up
 #ifdef USE_FLOAT
@@ -448,7 +451,7 @@ struct IntegrationResult {
     real minimalDistance;
 };
 
-__device__ IntegrationResult dp853_integrate(real* y) {
+__device__ IntegrationResult dp853_integrate(real* y, int globalIdx) {
     constexpr real SAFETY = (real)0.9;
     constexpr real MIN_REDUCTION = (real)0.2;
     constexpr real MAX_GROWTH = (real)10.0;
@@ -514,6 +517,13 @@ __device__ IntegrationResult dp853_integrate(real* y) {
             for (int j = 0; j < 12; j++) y[j] = y1[j];
             for (int j = 0; j < 12; j++) k[0][j] = k[12][j]; // FSAL
 
+            // ---- Checkpoint: print progress every 10000 steps (first 4 threads only) ----
+            if ((result.nSteps % 10000) == 0 && globalIdx < 4) {
+                printf("[GPU e#%d] step %d | t=%.1f | qz=%.1f | h=%.2e | rz=%.1f\n",
+                       globalIdx, result.nSteps, (double)t,
+                       (double)y[2], (double)h, (double)y[5]);
+            }
+
             // Track closest approach every 64 steps
             if ((result.nSteps & 63) == 0) {
                 real rx = y[3], ry = y[4], rz = y[5];
@@ -533,6 +543,11 @@ __device__ IntegrationResult dp853_integrate(real* y) {
             // Backward detection
             if (y[2] < -d_detectionDistance && y[8] < (real)0.0) {
                 result.exitCode = EXIT_BACKWARD;
+                return result;
+            }
+            // XY boundary check — electron escaped laterally (missing before!)
+            if (REAL_FABS(y[0]) > d_xyBoundary || REAL_FABS(y[1]) > d_xyBoundary) {
+                result.exitCode = EXIT_XY_BOUNDARY;
                 return result;
             }
             // Superluminal check
@@ -589,7 +604,8 @@ struct ElectronOutput {
 // ============================================================================
 __global__ void integrateKernel(const ElectronInput* __restrict__ inputs,
                                 ElectronOutput* __restrict__ outputs,
-                                int numElectrons) {
+                                int numElectrons,
+                                int globalOffset) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= numElectrons) return;
 
@@ -597,8 +613,8 @@ __global__ void integrateKernel(const ElectronInput* __restrict__ inputs,
     real state[12];
     for (int i = 0; i < 12; i++) state[i] = inputs[idx].state[i];
 
-    // Run full adaptive integration
-    IntegrationResult result = dp853_integrate(state);
+    // Run full adaptive integration (pass global electron index for diagnostics)
+    IntegrationResult result = dp853_integrate(state, globalOffset + idx);
 
     // Write results
     for (int i = 0; i < 12; i++) outputs[idx].finalState[i] = state[i];
@@ -761,10 +777,12 @@ int main(int argc, char** argv) {
 
     // Launch in batches so we can report progress between each batch
     int blockSize = 64;  // conservative — each thread uses ~2KB local memory
-    int batchSize = std::min(256, totalSimulations);  // electrons per batch
+    int batchSize = std::min(64, totalSimulations);  // electrons per batch (small for progress)
 
     printf("Running %d electrons in batches of %d (block size %d)\n",
            totalSimulations, batchSize, blockSize);
+    printf("XY boundary: %.1f reduced units (10 * Bohr radius)\n",
+           10.0 * PhysConst::reducedBohr);
     printf("Detector: %.0fmm x %.0fmm aperture at %.2fm\n",
            PhysConst::apertureHalfM * 2e3, PhysConst::apertureHalfM * 2e3,
            PhysConst::detectorDistanceM);
@@ -782,7 +800,7 @@ int main(int argc, char** argv) {
         int gridSize = (thisBatch + blockSize - 1) / blockSize;
 
         integrateKernel<<<gridSize, blockSize>>>(
-            d_inputs + launched, d_outputs + launched, thisBatch);
+            d_inputs + launched, d_outputs + launched, thisBatch, launched);
         HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
@@ -832,7 +850,7 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipFree(d_outputs));
 
     // Final tally (detector already computed in batch loop)
-    int isNaN_total = 0, isPos_total = 0, isNeg_total = 0;
+    int isNaN_total = 0, isPos_total = 0, isNeg_total = 0, xyEscape_total = 0;
     int detectedCount = detectedSoFar;
     long totalSteps = 0;
 
@@ -840,6 +858,8 @@ int main(int argc, char** argv) {
         auto& o = h_outputs[i];
         if (o.exitCode == EXIT_SUPERLUMINAL) {
             isNaN_total++;
+        } else if (o.exitCode == EXIT_XY_BOUNDARY) {
+            xyEscape_total++;
         } else {
             if (o.finalState[2] > 0) isPos_total++;
             else isNeg_total++;
@@ -852,8 +872,8 @@ int main(int argc, char** argv) {
         totalEnd - totalStart).count();
 
     printf("\n=== SUMMARY ===\n");
-    printf("isNaN: %d | isPos: %d | isNeg: %d\n",
-           isNaN_total, isPos_total, isNeg_total);
+    printf("isNaN: %d | isPos: %d | isNeg: %d | xyEscape: %d\n",
+           isNaN_total, isPos_total, isNeg_total, xyEscape_total);
     printf("DETECTED: %d/%d (%.1f%%)\n",
            detectedCount, totalSimulations,
            100.0 * detectedCount / totalSimulations);
@@ -924,7 +944,7 @@ int main(int argc, char** argv) {
         out << "# chainHalfLength: " << PhysConst::chainHalfLength << " (reduced)\n";
         out << "# maxTime: " << PhysConst::maxTime << " (reduced)\n";
         out << "# Summary: isNaN=" << isNaN_total << " isPos=" << isPos_total
-            << " isNeg=" << isNeg_total << "\n";
+            << " isNeg=" << isNeg_total << " xyEscape=" << xyEscape_total << "\n";
         out << "#\n";
         out << "# Columns:\n";
         out << "# idx qx qy qz rx ry rz vx vy vz ux uy uz"
