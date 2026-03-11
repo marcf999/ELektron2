@@ -775,9 +775,12 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipMemcpy(d_inputs, h_inputs.data(),
         totalSimulations * sizeof(ElectronInput), hipMemcpyHostToDevice));
 
-    // Launch in batches so we can report progress between each batch
-    int blockSize = 64;  // conservative — each thread uses ~2KB local memory
-    int batchSize = std::min(64, totalSimulations);  // electrons per batch (small for progress)
+    // Launch in batches so we can report progress between each batch.
+    // MI300X has 304 CUs; each block of 64 threads occupies 1 CU.
+    // To fill the GPU we need gridSize >= 304, i.e. batchSize >= 304*64 = 19456.
+    // Use all electrons in one batch when possible (progress comes from device printf).
+    int blockSize = 64;  // one wavefront per block (register-heavy kernel)
+    int batchSize = totalSimulations;  // launch everything — GPU has 304 CUs
 
     printf("Running %d electrons in batches of %d (block size %d)\n",
            totalSimulations, batchSize, blockSize);
