@@ -13,9 +13,9 @@ set -euo pipefail
 BINARY="./elektron2_rocm_fp64"
 ELECTRONS="${1:-1000000}"
 
-# Energy scan range
-E_START=4980
-E_END=5020
+# Energy scan range: 10 points centered on 5000 eV
+E_START=4991
+E_END=5009
 E_STEP=2
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
