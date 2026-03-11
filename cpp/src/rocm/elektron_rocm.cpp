@@ -517,11 +517,11 @@ __device__ IntegrationResult dp853_integrate(real* y, int globalIdx) {
             for (int j = 0; j < 12; j++) y[j] = y1[j];
             for (int j = 0; j < 12; j++) k[0][j] = k[12][j]; // FSAL
 
-            // ---- Checkpoint: print progress every 10000 steps (first 4 threads only) ----
-            if ((result.nSteps % 10000) == 0 && globalIdx < 4) {
-                printf("[GPU e#%d] step %d | t=%.1f | qz=%.1f | h=%.2e | rz=%.1f\n",
+            // ---- Checkpoint: print every 100000 steps (first 2 threads only to reduce spam) ----
+            if ((result.nSteps % 100000) == 0 && globalIdx < 2) {
+                printf("[GPU e#%d] step %d | t=%.1f | qz=%.1f | h=%.2e\n",
                        globalIdx, result.nSteps, (double)t,
-                       (double)y[2], (double)h, (double)y[5]);
+                       (double)y[2], (double)h);
             }
 
             // Track closest approach every 64 steps
@@ -777,10 +777,10 @@ int main(int argc, char** argv) {
 
     // Launch in batches so we can report progress between each batch.
     // MI300X has 304 CUs; each block of 64 threads occupies 1 CU.
-    // To fill the GPU we need gridSize >= 304, i.e. batchSize >= 304*64 = 19456.
-    // Use all electrons in one batch when possible (progress comes from device printf).
+    // Batch of 4096 = 64 blocks — fills ~21% of CUs, gives progress every few minutes.
+    // Bigger batches improve GPU utilization but lose progress granularity.
     int blockSize = 64;  // one wavefront per block (register-heavy kernel)
-    int batchSize = totalSimulations;  // launch everything — GPU has 304 CUs
+    int batchSize = std::min(4096, totalSimulations);
 
     printf("Running %d electrons in batches of %d (block size %d)\n",
            totalSimulations, batchSize, blockSize);
