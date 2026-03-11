@@ -78,19 +78,36 @@ else()
 endif()
 
 # ---- ROCm/HIP target (optional — AMD GPU-parallel DP853) ----
+# HIP language support requires CMake >= 3.21; check_language(HIP) verifies hipcc exists.
 find_package(hip QUIET)
 if(hip_FOUND)
-    # FP32 build
-    add_executable(elektron2_rocm src/rocm/elektron_rocm.cpp)
-    target_link_libraries(elektron2_rocm PRIVATE hip::device)
-    target_compile_options(elektron2_rocm PRIVATE -DUSE_FLOAT -O2)
+    check_language(HIP)
+    if(CMAKE_HIP_COMPILER)
+        enable_language(HIP)
+        set(CMAKE_HIP_STANDARD 17)
+        set(CMAKE_HIP_STANDARD_REQUIRED ON)
 
-    # FP64 build (AMD Instinct GPUs have full FP64 throughput — 1/2 of FP32)
-    add_executable(elektron2_rocm_fp64 src/rocm/elektron_rocm.cpp)
-    target_link_libraries(elektron2_rocm_fp64 PRIVATE hip::device)
-    target_compile_options(elektron2_rocm_fp64 PRIVATE -O2)
+        # Mark the source as HIP so CMake uses hipcc instead of c++
+        set_source_files_properties(src/rocm/elektron_rocm.cpp PROPERTIES LANGUAGE HIP)
 
-    message(STATUS "ROCm/HIP found — building elektron2_rocm (FP32) + elektron2_rocm_fp64")
+        # FP32 build
+        add_executable(elektron2_rocm src/rocm/elektron_rocm.cpp)
+        target_link_libraries(elektron2_rocm PRIVATE hip::device)
+        target_compile_options(elektron2_rocm PRIVATE
+            $<$<COMPILE_LANGUAGE:HIP>:-DUSE_FLOAT -O2>
+        )
+
+        # FP64 build (AMD Instinct GPUs have full FP64 throughput — 1/2 of FP32)
+        add_executable(elektron2_rocm_fp64 src/rocm/elektron_rocm.cpp)
+        target_link_libraries(elektron2_rocm_fp64 PRIVATE hip::device)
+        target_compile_options(elektron2_rocm_fp64 PRIVATE
+            $<$<COMPILE_LANGUAGE:HIP>:-O2>
+        )
+
+        message(STATUS "ROCm/HIP found (${CMAKE_HIP_COMPILER}) — building elektron2_rocm (FP32) + elektron2_rocm_fp64")
+    else()
+        message(STATUS "ROCm/HIP package found but hipcc not available — skipping")
+    endif()
 else()
     message(STATUS "ROCm/HIP not found — skipping elektron2_rocm target")
 endif()
