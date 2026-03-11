@@ -595,3 +595,21 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 - **2-stream overlapping**: Two HIP streams alternate batches. While one batch's stragglers finish, the next batch starts on free CUs. Eliminates idle time between batches.
 - **Async memcpy**: `hipMemcpyAsync` on the kernel's stream instead of blocking `hipMemcpy`, overlapping D→H transfer with next kernel.
 - **Throughput reported**: Summary now prints electrons/sec for easy comparison.
+
+**40) 100K electron benchmark (MI300X, optimized)**
+
+| | 10K (old, §37) | 100K (optimized) |
+|---|---|---|
+| Block size | 64 | 256 |
+| Batch size | 4096 | 77,824 |
+| Grid (blocks) | 64 | 304 |
+| XY boundary | 10 Bohr | 3 Bohr |
+| Throughput | 36 e/s | **96.6 e/s** |
+| Avg steps/e | 809K | 568K |
+| Detected | 3.8% | 3.6% |
+| xyEscape | 79.7% | 96.7% |
+| Total time | 275s (10K) | 1036s (100K) |
+
+- **2.7× throughput improvement** (36→96.6 e/s). Gains from: full CU saturation (304/304 vs 64/304), tighter XY boundary (fewer wasted steps), and 4 wavefronts/block for latency hiding.
+- Physics consistent: 3.6% detection rate matches previous runs.
+- Straggler effect still present: batch 1 (77,824 electrons) took 1035.6s, batch 2 (22,176) completed instantly (overlap with batch 1 stragglers).
