@@ -5,8 +5,8 @@
 
 namespace PhysicalData {
 
-    // Integrator choice: CAPD, Boost, or DP853
-    enum class Integrator { CAPD, Boost, DP853 };
+    // Integrator choice: Boost or DP853
+    enum class Integrator { Boost, DP853 };
     constexpr Integrator integrator = Integrator::DP853;
 
     // Impact parameter range in meters
@@ -39,12 +39,6 @@ namespace PhysicalData {
     constexpr double startPos = -(chainHalfLength + 4000.0);  // reduced units, well before first atom
     constexpr int totalSimulations = 100;
     constexpr int plotsToShow = 0;
-
-    // CAPD Taylor integrator parameters
-    constexpr int capdOrder = 20;
-    constexpr double capdStepDivisor = 10.0;
-    constexpr double capdMinStep = 1e-4;
-    constexpr double maxStep = 50.0;
 
     // Boost.Odeint DormandPrince5(4) parameters
     constexpr double boostAbsTol = 1e-12;

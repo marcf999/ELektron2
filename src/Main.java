@@ -108,10 +108,9 @@ public class Main {
                 }
 
                 if (completedCount % PhysicalData.progressLogEvery == 0 || completedCount == totalSimulations) {
-                    System.out.println(
-                            "Progress: " + completedCount + "/" + totalSimulations +
-                                    " | Detected: " + detectedCount.get()
-                    );
+                    long elapsedMs = System.currentTimeMillis() - totalStartMs;
+                    System.out.printf("Progress: %d/%d | Detected: %d | Elapsed: %.1fs%n",
+                            completedCount, totalSimulations, detectedCount.get(), elapsedMs / 1000.0);
                 }
 
                 // Submit next task if more remain

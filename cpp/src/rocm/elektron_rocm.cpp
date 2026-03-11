@@ -759,36 +759,81 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipMemcpy(d_inputs, h_inputs.data(),
         totalSimulations * sizeof(ElectronInput), hipMemcpyHostToDevice));
 
-    // Launch kernel
+    // Launch in batches so we can report progress between each batch
     int blockSize = 64;  // conservative — each thread uses ~2KB local memory
-    int gridSize = (totalSimulations + blockSize - 1) / blockSize;
+    int batchSize = std::min(256, totalSimulations);  // electrons per batch
 
-    printf("Launching kernel: %d blocks x %d threads = %d threads\n",
-           gridSize, blockSize, gridSize * blockSize);
+    printf("Running %d electrons in batches of %d (block size %d)\n",
+           totalSimulations, batchSize, blockSize);
+    printf("Detector: %.0fmm x %.0fmm aperture at %.2fm\n",
+           PhysConst::apertureHalfM * 2e3, PhysConst::apertureHalfM * 2e3,
+           PhysConst::detectorDistanceM);
     fflush(stdout);
 
     auto kernelStart = std::chrono::steady_clock::now();
 
-    integrateKernel<<<gridSize, blockSize>>>(d_inputs, d_outputs, totalSimulations);
-    HIP_CHECK(hipGetLastError());
-    HIP_CHECK(hipDeviceSynchronize());
+    std::vector<ElectronOutput> h_outputs(totalSimulations);
+    int launched = 0;
+    int finished = 0;
+    int detectedSoFar = 0;
+
+    while (launched < totalSimulations) {
+        int thisBatch = std::min(batchSize, totalSimulations - launched);
+        int gridSize = (thisBatch + blockSize - 1) / blockSize;
+
+        integrateKernel<<<gridSize, blockSize>>>(
+            d_inputs + launched, d_outputs + launched, thisBatch);
+        HIP_CHECK(hipGetLastError());
+        HIP_CHECK(hipDeviceSynchronize());
+
+        // Copy this batch back immediately
+        HIP_CHECK(hipMemcpy(h_outputs.data() + launched, d_outputs + launched,
+            thisBatch * sizeof(ElectronOutput), hipMemcpyDeviceToHost));
+
+        // Quick-tally this batch for progress
+        for (int i = launched; i < launched + thisBatch; i++) {
+            auto& o = h_outputs[i];
+            o.detected = false;
+            o.xDet_mm = 0;
+            o.yDet_mm = 0;
+            double vx = (double)o.finalState[6];
+            double vy = (double)o.finalState[7];
+            double vz = (double)o.finalState[8];
+            if (vz > 0) {
+                double xAtDet = (vx / vz) * PhysConst::detectorDistanceM;
+                double yAtDet = (vy / vz) * PhysConst::detectorDistanceM;
+                if (std::abs(xAtDet) < PhysConst::apertureHalfM &&
+                    std::abs(yAtDet) < PhysConst::apertureHalfM) {
+                    o.detected = true;
+                    o.xDet_mm = xAtDet * 1e3;
+                    o.yDet_mm = yAtDet * 1e3;
+                    detectedSoFar++;
+                }
+            }
+        }
+
+        launched += thisBatch;
+        finished = launched;
+
+        auto now = std::chrono::steady_clock::now();
+        long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - kernelStart).count();
+        double pct = 100.0 * finished / totalSimulations;
+        printf("Progress: %d/%d (%.1f%%) | Detected: %d | Elapsed: %.1fs\n",
+               finished, totalSimulations, pct, detectedSoFar, elapsedMs / 1000.0);
+        fflush(stdout);
+    }
 
     auto kernelEnd = std::chrono::steady_clock::now();
     long kernelMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         kernelEnd - kernelStart).count();
 
-    // Copy results back
-    std::vector<ElectronOutput> h_outputs(totalSimulations);
-    HIP_CHECK(hipMemcpy(h_outputs.data(), d_outputs,
-        totalSimulations * sizeof(ElectronOutput), hipMemcpyDeviceToHost));
-
     // Free device memory
     HIP_CHECK(hipFree(d_inputs));
     HIP_CHECK(hipFree(d_outputs));
 
-    // Tally results + detector check
+    // Final tally (detector already computed in batch loop)
     int isNaN_total = 0, isPos_total = 0, isNeg_total = 0;
-    int detectedCount = 0;
+    int detectedCount = detectedSoFar;
     long totalSteps = 0;
 
     for (int i = 0; i < totalSimulations; i++) {
@@ -800,38 +845,6 @@ int main(int argc, char** argv) {
             else isNeg_total++;
         }
         totalSteps += o.nSteps;
-
-        // Virtual detector: project forward-going electrons onto detector plane
-        o.detected = false;
-        o.xDet_mm = 0;
-        o.yDet_mm = 0;
-        double vx = (double)o.finalState[6];
-        double vy = (double)o.finalState[7];
-        double vz = (double)o.finalState[8];
-        if (vz > 0) {
-            double xAtDet = (vx / vz) * PhysConst::detectorDistanceM;
-            double yAtDet = (vy / vz) * PhysConst::detectorDistanceM;
-            if (std::abs(xAtDet) < PhysConst::apertureHalfM &&
-                std::abs(yAtDet) < PhysConst::apertureHalfM) {
-                o.detected = true;
-                o.xDet_mm = xAtDet * 1e3;
-                o.yDet_mm = yAtDet * 1e3;
-                detectedCount++;
-            }
-        }
-
-        if (totalSimulations <= 100 ||
-            (i+1) % PhysConst::progressLogEvery == 0 ||
-            i == totalSimulations - 1) {
-            double eOut = getKineticEnergy(o.finalState);
-            const char* exitStr = (o.exitCode == EXIT_FORWARD) ? "FWD" :
-                                  (o.exitCode == EXIT_BACKWARD) ? "BACK" :
-                                  (o.exitCode == EXIT_SUPERLUMINAL) ? "NaN" :
-                                  (o.exitCode == EXIT_MAXSTEPS) ? "MAXS" : "TIME";
-            printf("[%5d] Steps: %7d | Exit: %4s | Apex: %.4e | Eout: %.4e eV%s\n",
-                   i, o.nSteps, exitStr, (double)o.minimalDistance, eOut,
-                   o.detected ? " *DET*" : "");
-        }
     }
 
     auto totalEnd = std::chrono::steady_clock::now();
@@ -864,7 +877,9 @@ int main(int argc, char** argv) {
         std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", std::localtime(&nowTime));
         std::strftime(timeFmt, sizeof(timeFmt), "%H%M%S", std::localtime(&nowTime));
 
-        std::string resultsDir = "/mnt/c/Users/marcf/IdeaProjects/ELektron2/results/";
+        std::string resultsDir = "../results/";
+        // Create results dir if it doesn't exist
+        std::system("mkdir -p ../results 2>/dev/null");
         char energyStr[32];
         std::snprintf(energyStr, sizeof(energyStr), "%.0feV", energyEV);
         std::string resultsFile = std::string(dateBuf) + "_" + timeFmt

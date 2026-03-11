@@ -80,7 +80,7 @@ public class PhysicalData {
     // XY-boundary: stop if |qx| or |qy| exceeds 10 Bohr radii (reduced units)
     public static double xyBoundary = 10.0 * reducedBohr;
 
-    // Detector: 1m distance, 1mm × 1mm square aperture centered on z-axis
+    // Detector: 1m distance, 100mm × 100mm square aperture centered on z-axis
     public static double detectorDistanceM = 1.0d;      // meters
-    public static double apertureHalfM = 0.5e-3d;       // half-width in meters (1mm side)
+    public static double apertureHalfM = 50e-3d;        // half-width in meters (100mm side)
 }
