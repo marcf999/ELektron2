@@ -716,6 +716,13 @@ double getAngle(const real* state) {
 int main(int argc, char** argv) {
     PhysConst::init();
 
+    // GPU selection: GPU env var (0-3 for multi-GPU)
+    const char* gpuEnv = std::getenv("GPU");
+    if (gpuEnv) {
+        int gpuId = std::atoi(gpuEnv);
+        HIP_CHECK(hipSetDevice(gpuId));
+    }
+
     // Parse args: elektron2_rocm [numElectrons] [energyEV]
     int totalSimulations = PhysConst::defaultSimulations;
     if (argc > 1) totalSimulations = std::atoi(argv[1]);
