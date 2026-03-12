@@ -11,7 +11,7 @@
 set -euo pipefail
 
 BINARY="./elektron2_rocm_fp64"
-ELECTRONS="${1:-100000}"
+ELECTRONS="${1:-750000}"
 
 # Energy scan range: 10 points centered on 5000 eV
 E_START=4991
@@ -44,16 +44,17 @@ for ENERGY in $(seq $E_START $E_STEP $E_END); do
     echo "Started: $(date)"
     echo "============================================================"
 
-    # Run simulation and capture output
-    OUTPUT=$("$BINARY" "$ELECTRONS" "$ENERGY" 2>&1)
-    echo "$OUTPUT"
+    # Run simulation with live output (tee to temp file for post-parsing)
+    TMPOUT=$(mktemp)
+    "$BINARY" "$ELECTRONS" "$ENERGY" 2>&1 | tee "$TMPOUT"
 
-    # Extract results from output
-    DETECTED=$(echo "$OUTPUT" | grep "^DETECTED:" | sed 's/.*: \([0-9]*\)\/.*/\1/')
-    TOTAL=$(echo "$OUTPUT" | grep "^DETECTED:" | sed 's/.*\/\([0-9]*\) .*/\1/')
-    PCT=$(echo "$OUTPUT" | grep "^DETECTED:" | sed 's/.*(\(.*\)%)/\1/')
-    KERNEL_MS=$(echo "$OUTPUT" | grep "^KERNEL TIME:" | sed 's/.*: \([0-9]*\) ms.*/\1/')
-    THROUGHPUT=$(echo "$OUTPUT" | grep "^KERNEL TIME:" | sed 's/.*(// ; s/ electrons.*//')
+    # Extract results from captured output
+    DETECTED=$(grep "^DETECTED:" "$TMPOUT" | sed 's/.*: \([0-9]*\)\/.*/\1/')
+    TOTAL=$(grep "^DETECTED:" "$TMPOUT" | sed 's/.*\/\([0-9]*\) .*/\1/')
+    PCT=$(grep "^DETECTED:" "$TMPOUT" | sed 's/.*(\(.*\)%)/\1/')
+    KERNEL_MS=$(grep "^KERNEL TIME:" "$TMPOUT" | sed 's/.*: \([0-9]*\) ms.*/\1/')
+    THROUGHPUT=$(grep "^KERNEL TIME:" "$TMPOUT" | sed 's/.*(// ; s/ electrons.*//')
+    rm -f "$TMPOUT"
 
     KERNEL_S=$(echo "scale=1; ${KERNEL_MS:-0} / 1000" | bc)
 
