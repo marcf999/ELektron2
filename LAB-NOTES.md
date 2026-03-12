@@ -613,3 +613,24 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 - **2.7× throughput improvement** (36→96.6 e/s). Gains from: full CU saturation (304/304 vs 64/304), tighter XY boundary (fewer wasted steps), and 4 wavefronts/block for latency hiding.
 - Physics consistent: 3.6% detection rate matches previous runs.
 - Straggler effect still present: batch 1 (77,824 electrons) took 1035.6s, batch 2 (22,176) completed instantly (overlap with batch 1 stragglers).
+
+**41) Single-point validation run (100K, 5000 eV)**
+- 100,000 electrons at 5000 eV: 3,565 detected (3.565%), 99.8 e/s, 15 NaN, 96,671 xyEscape.
+- Consistent with §40 benchmarks. Output: `2026-03-11_225243_rocm-dp853_5000eV_100000.dat`.
+
+### March 12, 2026 — Energy scan launch
+
+**42) Energy scan: 750K electrons × 10 energy points**
+- Launched full energy scan on HotAisle MI300X: 4991–5009 eV in 2 eV steps, 750,000 electrons per point (7.5M total).
+- Fixed `energy_scan.sh` buffering issue: script was capturing all output in a shell variable (`OUTPUT=$(...)`), suppressing live progress. Replaced with `tee` to a temp file so progress prints (every 1000 electrons) stream to console in real time.
+- Fixed binary path: script now resolves path relative to its own location (`SCRIPT_DIR/../build/`) instead of assuming CWD.
+- Estimated runtime: ~2.1 hours per point, ~21 hours total at ~100 e/s.
+- Running in `screen -S scan` to survive SSH disconnect.
+  ```bash
+  screen -S scan
+  cd ~/ELektron2/cpp/scripts && bash energy_scan.sh
+  # Detach: Ctrl+A D
+  # Reattach: screen -r scan
+  # Check log: tail -f ~/ELektron2/cpp/scripts/energy_scan_20260312_*.log
+  # Monitor GPU: watch -n 2 rocm-smi
+  ```
