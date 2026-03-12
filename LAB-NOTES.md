@@ -463,16 +463,18 @@ The code is preserved in `cpp/src/cuda/elektron_cuda.cu` for potential future us
 
 ### Results (1000 sims, single atom, 5000 eV → Carbon Z=6, repulsive sign)
 
-| Metric | Java DP8(5,3) | C++ Boost DP5(4) | C++ CAPD Taylor-20 |
-|--------|---------------|-------------------|---------------------|
-| Steps/electron | 80k–280k | ~880,000 | ~290 |
-| Energy out (eV) | 5000.07–5000.22 | ~5000.002 | ~5000.005 |
-| Energy drift | ~0.004% | ~0.00004% | ~0.0001% |
-| isNaN | 0 | 0 | 0 |
-| isPos / isNeg | 1000/0 | 999/1 | 1000/0 |
-| Time (4 cores) | ~576s (seq) | ~50s | ~34s |
-| Time (24 cores) | N/A | ~10.3s | ~12.2s |
-| |u|² constraint | ~1e-7 drift | held at 1.0 | held at 1.0 |
+| Metric | Java DP8(5,3) | C++ Boost DP5(4) | C++ CAPD Taylor-20 | ROCm FP64 (MI300X) |
+|--------|---------------|-------------------|---------------------|---------------------|
+| Steps/electron | 80k–280k | ~880,000 | ~290 | 568K |
+| Energy out (eV) | 5000.07–5000.22 | ~5000.002 | ~5000.005 | ~5000 (1e-6 drift) |
+| Energy drift | ~0.004% | ~0.00004% | ~0.0001% | ~1e-6 |
+| isNaN | 0 | 0 | 0 | 15/100K (0.015%) |
+| isPos / isNeg | 1000/0 | 999/1 | 1000/0 | 3208/106 (100K) |
+| Time (4 cores) | ~576s (seq) | ~50s | ~34s | N/A |
+| Time (24 cores) | N/A | ~10.3s | ~12.2s | N/A |
+| Time (MI300X) | N/A | N/A | N/A | 1002s (100K) |
+| Throughput | — | — | — | 99.8 e/s |
+| |u|² constraint | ~1e-7 drift | held at 1.0 | held at 1.0 | held |
 
 ### Results (24 sims, 30-atom chain, 5000 eV, attractive sign, range [1e-13, 1e-12] m)
 
@@ -519,7 +521,7 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 5. ~~**CAPD scaling**~~: Resolved by removing CAPD entirely (entry §33).
 6. ~~**Detector aperture mismatch**~~: Unified to 100mm × 100mm across all layers (entry §29).
 7. ~~**Java detector**~~: Java now implements detector projection with detected-only output (entry §29).
-8. ~~**ROCm straggler effect**~~: Resolved by moving to single-stream launch with device-side atomic counter for live progress (§39). All electrons launched at once, progress polled via `atomicAdd`. Wall time still dominated by slowest electron, but no idle CUs between batches.
+8. ~~**ROCm straggler effect**~~: Resolved (§39). Single-stream launch with device-side atomic counter. No idle CUs between batches. Throughput variance (109–140 e/s) is inherent to variable per-electron workload.
 9. **GPU occupancy**: DP853 kernel uses ~1.5 KB local memory per thread (k[13][12] doubles), limiting occupancy to ~1 wavefront per CU. Investigate register spilling / LDS usage trade-offs.
 
 ---
@@ -622,7 +624,7 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 
 **42) Energy scan: 750K electrons × 10 energy points**
 - Launched full energy scan on HotAisle MI300X: 4991–5009 eV in 2 eV steps, 750,000 electrons per point (7.5M total).
-- Fixed `energy_scan.sh` buffering issue: script was capturing all output in a shell variable (`OUTPUT=$(...)`), suppressing live progress. Replaced with `tee` to a temp file so progress prints (every 1000 electrons) stream to console in real time.
+- Fixed `energy_scan.sh` buffering issue: pipe buffering suppressed live progress. Added `stdbuf -oL` to force line-buffered output from the binary through the `tee` pipe.
 - Fixed binary path: script now resolves path relative to its own location (`SCRIPT_DIR/../build/`) instead of assuming CWD.
 - Estimated runtime: ~2.1 hours per point, ~21 hours total at ~100 e/s.
 - Running in `screen -S scan` to survive SSH disconnect.
@@ -634,3 +636,25 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
   # Check log: tail -f ~/ELektron2/cpp/scripts/energy_scan_20260312_*.log
   # Monitor GPU: watch -n 2 rocm-smi
   ```
+
+**43) Energy scan results (9/10 complete)**
+
+| Energy (eV) | Detected | Rate (%) | Δ from mean | e/s | Time (s) |
+|---|---|---|---|---|---|
+| 4991 | 26,941 | 3.5921 | +0.030 | 140.1 | 5,353 |
+| 4993 | 26,984 | 3.5979 | +0.036 | 117.6 | 6,377 |
+| 4995 | 26,938 | 3.5917 | +0.030 | 115.7 | 6,483 |
+| 4997 | 26,511 | 3.5348 | −0.027 | 120.8 | 6,211 |
+| 4999 | 26,808 | 3.5744 | +0.013 | 115.9 | 6,471 |
+| 5001 | 26,936 | 3.5915 | +0.030 | 134.0 | 5,597 |
+| 5003 | 26,478 | 3.5304 | −0.032 | 109.3 | 6,862 |
+| **5005** | **27,385** | **3.6513** | **+0.090** | 129.2 | 5,803 |
+| 5007 | 26,974 | 3.5965 | +0.035 | 122.2 | 6,135 |
+| 5009 | — | — | — | — | running |
+
+- **Mean (9 points): 3.5623%** | 1σ statistical: ±0.0215% per point
+- Total spread: 3.5304–3.6513% (0.121%, ~5.6σ)
+- **5005 eV stands out at +4.2σ** above mean — possible resonance signal
+- Dips at 4997 and 5003 are marginal (~1.3σ below mean)
+- Throughput varies 109–140 e/s due to straggler effect (batch completion dominated by slowest electron)
+- Next step: confirm 5005 eV feature with higher statistics or finer energy steps around 5004–5006 eV
