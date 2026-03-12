@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARY="${SCRIPT_DIR}/../build/elektron2_rocm_fp64"
-ELECTRONS="${1:-2000000}"
+ELECTRONS="${1:-1000000}"
 NUM_GPUS=4
 
 # Energy points: dense around 5005 anomaly (0.25 eV steps), sparser at edges (1.0 eV)
