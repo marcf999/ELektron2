@@ -519,7 +519,7 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 5. ~~**CAPD scaling**~~: Resolved by removing CAPD entirely (entry §33).
 6. ~~**Detector aperture mismatch**~~: Unified to 100mm × 100mm across all layers (entry §29).
 7. ~~**Java detector**~~: Java now implements detector projection with detected-only output (entry §29).
-8. **ROCm straggler effect**: Batch completion time dominated by slowest electron. With 10,000 electrons the last few percent can take 2–5× longer than average. Consider adaptive batch sizing or kernel timeout.
+8. ~~**ROCm straggler effect**~~: Resolved by moving to single-stream launch with device-side atomic counter for live progress (§39). All electrons launched at once, progress polled via `atomicAdd`. Wall time still dominated by slowest electron, but no idle CUs between batches.
 9. **GPU occupancy**: DP853 kernel uses ~1.5 KB local memory per thread (k[13][12] doubles), limiting occupancy to ~1 wavefront per CU. Investigate register spilling / LDS usage trade-offs.
 
 ---

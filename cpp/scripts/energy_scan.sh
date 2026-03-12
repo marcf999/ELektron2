@@ -47,7 +47,7 @@ for ENERGY in $(seq $E_START $E_STEP $E_END); do
 
     # Run simulation with live output (tee to temp file for post-parsing)
     TMPOUT=$(mktemp)
-    "$BINARY" "$ELECTRONS" "$ENERGY" 2>&1 | tee "$TMPOUT"
+    stdbuf -oL "$BINARY" "$ELECTRONS" "$ENERGY" 2>&1 | tee "$TMPOUT"
 
     # Extract results from captured output
     DETECTED=$(grep "^DETECTED:" "$TMPOUT" | sed 's/.*: \([0-9]*\)\/.*/\1/')
