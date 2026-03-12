@@ -10,7 +10,8 @@
 
 set -euo pipefail
 
-BINARY="./elektron2_rocm_fp64"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BINARY="${SCRIPT_DIR}/../build/elektron2_rocm_fp64"
 ELECTRONS="${1:-750000}"
 
 # Energy scan range: 10 points centered on 5000 eV
