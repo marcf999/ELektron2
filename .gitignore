@@ -4,4 +4,3 @@ out/
 .idea/
 cpp/build/
 cpp/build-cuda/
-*.dat
