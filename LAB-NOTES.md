@@ -476,14 +476,14 @@ The code is preserved in `cpp/src/cuda/elektron_cuda.cu` for potential future us
 
 ### Results (24 sims, 30-atom chain, 5000 eV, attractive sign, range [1e-13, 1e-12] m)
 
-| Metric | Java DP8(5,3) | C++ DP853 | C++ CAPD Taylor-20 | CUDA FP32 |
-|--------|---------------|-----------|---------------------|-----------|
-| Blowups | 0/24 | 0/24 | 0/24 | N/A (too slow) |
-| Steps/electron | ~1.2M | ~1.2M | ~4,400–22,000 | 2M (hit limit) |
-| δE (eV) | 17keV–3.2MeV | ~1e-6 (good) | 32keV–4.7MeV | — |
-| Forward/Back | 17/7 | — | 14/10 | — |
-| Time (24 sims) | 48s | ~12s | 233s | 57s × 1 electron |
-| Speed vs Java | 1× | 3.3× faster | 4.8× slower | ~100× slower |
+| Metric | Java DP8(5,3) | C++ DP853 | C++ CAPD Taylor-20 | ROCm FP64 (MI300X) |
+|--------|---------------|-----------|---------------------|---------------------|
+| Blowups | 0/24 | 0/24 | 0/24 | 15/100K (0.015%) |
+| Steps/electron | ~1.2M | ~1.2M | ~4,400–22,000 | 568K |
+| δE (eV) | 17keV–3.2MeV | ~1e-6 (good) | 32keV–4.7MeV | ~1e-6 (good) |
+| Forward/Back | 17/7 | — | 14/10 | 3565/106 (100K) |
+| Time (24 sims) | 48s | ~12s | 233s | ~0.24s (at 100 e/s) |
+| Speed vs Java | 1× | 3.3× faster | 4.8× slower | ~16× faster |
 
 ### Observations
 
@@ -491,7 +491,7 @@ The code is preserved in `cpp/src/cuda/elektron_cuda.cu` for potential future us
 - **Boost DP5(4) shows slightly better raw energy conservation** than CAPD, likely due to the adaptive error estimator keeping local truncation error tight despite many more steps.
 - **Java DP8(5,3) shows the most drift** — higher order than Boost DP5(4) but running in Java with different floating-point semantics and many more accumulated steps.
 - **C++ DP853 is the sweet spot**: Same algorithm as Java DP8(5,3) but 3.3× faster due to C++ overhead reduction. No external dependencies. Default integrator.
-- **CUDA is not viable** on consumer GPUs — per-thread latency dominates any throughput advantage.
+- **CUDA is not viable** on consumer GPUs — per-thread latency dominates any throughput advantage. **ROCm FP64 on MI300X is the production platform**: full FP64 throughput (1/2 of FP32) makes datacenter AMD GPUs viable where consumer NVIDIA GPUs failed. 100 e/s sustained at 5000 eV.
 - **All integrators agree on the physics**: forward scattering dominates at 5 keV on carbon.
 
 ### Scaling Behavior (24 cores vs 4 cores)
