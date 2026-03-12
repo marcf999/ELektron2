@@ -19,9 +19,11 @@ E_START=4991
 E_END=5009
 E_STEP=2
 
+RESULTS_DIR="${SCRIPT_DIR}/../../results"
+mkdir -p "$RESULTS_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-SUMMARY="energy_scan_${TIMESTAMP}.csv"
-LOGFILE="energy_scan_${TIMESTAMP}.log"
+SUMMARY="${RESULTS_DIR}/energy_scan_${TIMESTAMP}.csv"
+LOGFILE="${RESULTS_DIR}/energy_scan_${TIMESTAMP}.log"
 
 echo "Energy scan: ${E_START}–${E_END} eV, step ${E_STEP}, ${ELECTRONS} electrons/point"
 echo "Summary: ${SUMMARY}"
