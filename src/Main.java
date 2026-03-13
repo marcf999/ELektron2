@@ -201,15 +201,22 @@ public class Main {
             out.println("# idx qx qy qz rx ry rz vx vy vz ux uy uz"
                     + " energyIn_eV energyOut_eV angle_deg steps"
                     + " elapsedMs dxZERO_reduced psi0"
-                    + " xDet_mm yDet_mm");
+                    + " xDet_mm yDet_mm detected");
             out.println("#");
 
             int written = 0;
             for (int i = 0; i < allResults.size(); i++) {
                 SimulationResult r = allResults.get(i);
-                if (!r.detected) continue;
                 Electron e = r.electron;
                 double[] s = e.electronCurrentState;
+
+                // Only write electrons that passed through the chain (forward z exit)
+                if (s[Electron.QZ] < PhysicalData.detectionDistance) continue;
+
+                // Compute detector position
+                double vz = s[Electron.VZ];
+                double xDet = (vz != 0) ? (s[Electron.VX] / vz) * PhysicalData.detectorDistanceM * 1e3 : 0;
+                double yDet = (vz != 0) ? (s[Electron.VY] / vz) * PhysicalData.detectorDistanceM * 1e3 : 0;
 
                 out.print(written);
                 for (int j = 0; j < 12; j++) out.print(" " + repr(s[j]));
@@ -220,13 +227,14 @@ public class Main {
                 out.print(" " + r.elapsedTimeMs);
                 out.print(" " + repr(e.dxZERO));
                 out.print(" " + repr(e.psi0));
-                out.print(" " + repr(r.xDet_mm));
-                out.print(" " + repr(r.yDet_mm));
+                out.print(" " + repr(xDet));
+                out.print(" " + repr(yDet));
+                out.print(" " + (r.detected ? 1 : 0));
                 out.println();
                 written++;
             }
 
-            System.out.println("Wrote " + written + " detected electrons (of " + allResults.size() + ") to " + resultsPath.getPath());
+            System.out.println("Wrote " + written + " electrons (of " + allResults.size() + ") to " + resultsPath.getPath());
         } catch (Exception ex) {
             System.err.println("Failed to write " + resultsPath.getPath() + ": " + ex.getMessage());
         }

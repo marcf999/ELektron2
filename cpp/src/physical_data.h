@@ -37,8 +37,8 @@ namespace PhysicalData {
     // Simulation parameters
     constexpr double startEnergy = 5000.0;       // eV
     constexpr double startPos = -(chainHalfLength + 4000.0);  // reduced units, well before first atom
-    constexpr int totalSimulations = 100;
-    constexpr int plotsToShow = 0;
+    constexpr int totalSimulations = 24;
+    constexpr int plotsToShow = 10;
 
     // Boost.Odeint DormandPrince5(4) parameters
     constexpr double boostAbsTol = 1e-12;

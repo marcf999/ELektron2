@@ -366,16 +366,19 @@ int main(int argc, char** argv) {
         out << "# idx qx qy qz rx ry rz vx vy vz ux uy uz"
             << " energyIn_eV energyOut_eV angle_deg steps"
             << " elapsedMs dxZERO_reduced psi0"
-            << " xDet_mm yDet_mm\n";
+            << " xDet_mm yDet_mm detected\n";
         out << "#\n";
 
         int written = 0;
         for (int i = 0; i < totalSimulations; i++) {
-            if (!results[i].detected) continue;
             auto& e = results[i].electron;
             const State& s = e.currentState;
-            double xAtDet = (s[VX] / s[VZ]) * PhysicalData::detectorDistanceM;
-            double yAtDet = (s[VY] / s[VZ]) * PhysicalData::detectorDistanceM;
+
+            // Only write electrons that passed through the chain (forward z exit)
+            if (s[QZ] < PhysicalData::detectionDistance) continue;
+
+            double xAtDet = (s[VZ] != 0) ? (s[VX] / s[VZ]) * PhysicalData::detectorDistanceM : 0;
+            double yAtDet = (s[VZ] != 0) ? (s[VY] / s[VZ]) * PhysicalData::detectorDistanceM : 0;
 
             out << written
                 << " " << s[QX] << " " << s[QY] << " " << s[QZ]
@@ -391,12 +394,13 @@ int main(int argc, char** argv) {
                 << " " << e.psi0
                 << " " << xAtDet * 1e3
                 << " " << yAtDet * 1e3
+                << " " << (results[i].detected ? 1 : 0)
                 << "\n";
             written++;
         }
 
         out.close();
-        std::cout << "Wrote " << written << " detected electrons (of " << totalSimulations
+        std::cout << "Wrote " << written << " electrons (of " << totalSimulations
                   << " total) to " << resultsPath << "\n";
     }
 

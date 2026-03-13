@@ -57,13 +57,9 @@ public class Electron {
         double Xdoty0 = 0;
         double Xdotz0 = velocity0;
 
-        // Initialize spin: theta0 = pi/2, phi0 = +/-pi/2
-        theta0 = Math.PI / 2;
-        if (PhysicalData.spin >= 0) {
-            phi0 = Math.PI / 2;
-        } else {
-            phi0 = -Math.PI / 2;
-        }
+        // Initialize spin along z-axis (axis of propagation)
+        theta0 = (PhysicalData.spin >= 0) ? 0.0 : Math.PI;
+        phi0 = 0.0;
 
         // Random zitter phase
         psi0 = Math.random() * 2 * Math.PI;

@@ -628,8 +628,9 @@ ElectronInput generateElectron(double energy, double rangeMin, double rangeMax,
 
     double Xdotx0 = 0.0, Xdoty0 = 0.0, Xdotz0 = velocity0;
 
-    double theta0 = M_PI / 2.0;
-    double phi0 = (spin >= 0) ? M_PI / 2.0 : -M_PI / 2.0;
+    // Initialize spin along z-axis (axis of propagation)
+    double theta0 = (spin >= 0) ? 0.0 : M_PI;
+    double phi0 = 0.0;
     double psi0 = phaseDist(rng);
     e.psi0 = psi0;
 

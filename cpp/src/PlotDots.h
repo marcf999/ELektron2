@@ -45,6 +45,11 @@ public:
         }
         double range = maxVal * 1.1;
 
+        // Center view on trajectory midpoint
+        int mid = n / 2;
+        double centerX = qx[mid];
+        double centerY = qz[mid];
+
         // Window title
         std::ostringstream titleSS;
         titleSS << "ELektron2 | E=" << std::fixed << std::setprecision(0) << electron.getKineticEnergy()
@@ -67,7 +72,7 @@ public:
                        || font.loadFromFile("/usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf")
                        || font.loadFromFile("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf");
 
-        double zoom = 1.0;
+        double zoom = 5000.0;  // Start zoomed in to see spin/zitter helix structure
         double panX = 0, panY = 0;
         bool dragging = false;
         int lastMX = 0, lastMY = 0;
@@ -117,13 +122,13 @@ public:
             int w = (int)window.getSize().x;
             int h = (int)window.getSize().y;
 
-            // Coordinate mapping lambdas
+            // Coordinate mapping lambdas — centered on trajectory midpoint
             auto toScreenX = [&](double physX) -> float {
-                double norm = (physX + range) / (2.0 * range);
+                double norm = ((physX - centerX) + range) / (2.0 * range);
                 return (float)(panX + w / 2.0 + (norm - 0.5) * w * zoom);
             };
             auto toScreenY = [&](double physY) -> float {
-                double norm = (physY + range) / (2.0 * range);
+                double norm = ((physY - centerY) + range) / (2.0 * range);
                 return (float)(panY + h / 2.0 - (norm - 0.5) * h * zoom);  // flip Y
             };
 

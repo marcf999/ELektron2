@@ -15,6 +15,7 @@ public class PlotDots extends JPanel {
 
     private double zoom = 1.0;
     private double panX = 0, panY = 0;
+    private double centerX = 0, centerY = 0;
     private int lastMouseX, lastMouseY;
 
     private Electron electron;
@@ -36,6 +37,8 @@ public class PlotDots extends JPanel {
             yZValues[i] = state[Electron.RZ] * PhysicalData.zitterRadius;
             i++;
         }
+
+        // Center on origin (0,0) so atoms and trajectories are visible
 
         setBackground(new Color(20, 20, 30));
 
@@ -81,16 +84,15 @@ public class PlotDots extends JPanel {
     // Map physical coordinate to pixel, with zoom + pan
     private int toScreenX(double physX) {
         double w = getWidth();
-        // Auto-scale: fit data to 80% of window
         double range = autoRange();
-        double norm = (physX + range) / (2 * range); // 0..1
+        double norm = ((physX - centerX) + range) / (2 * range); // 0..1 centered on trajectory
         return (int) (panX + w / 2 + (norm - 0.5) * w * zoom);
     }
 
     private int toScreenY(double physY) {
         double h = getHeight();
         double range = autoRange();
-        double norm = (physY + range) / (2 * range);
+        double norm = ((physY - centerY) + range) / (2 * range);
         return (int) (panY + h / 2 - (norm - 0.5) * h * zoom); // flip Y
     }
 

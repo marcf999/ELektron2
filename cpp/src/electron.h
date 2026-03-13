@@ -66,9 +66,9 @@ struct Electron {
         double Xdoty0 = 0.0;
         double Xdotz0 = velocity0;
 
-        // Initialize spin: theta0 = pi/2, phi0 = +/-pi/2
-        theta0 = M_PI / 2.0;
-        phi0 = (PhysicalData::spin >= 0) ? M_PI / 2.0 : -M_PI / 2.0;
+        // Initialize spin along z-axis (axis of propagation)
+        theta0 = (PhysicalData::spin >= 0) ? 0.0 : M_PI;
+        phi0 = 0.0;
 
         // Random zitter phase
         psi0 = phaseDist(rng);
