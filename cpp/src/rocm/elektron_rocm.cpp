@@ -739,9 +739,10 @@ int main(int argc, char** argv) {
            prop.totalGlobalMem / (1024.0 * 1024.0));
 
     printf("PARAMS | rangeMin: %.2e | rangeMax: %.2e | startEnergy: %.0f eV"
-           " | spin: %d | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
+           " | spin: %sz | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
            PhysConst::rangeMin, PhysConst::rangeMax, energyEV,
-           PhysConst::spin, PhysConst::carbonProtons,
+           PhysConst::spin >= 0 ? "+" : "-",
+           PhysConst::carbonProtons,
            PhysConst::atomCount, PhysConst::atomSpacing);
 #ifdef USE_FLOAT
     printf("Integrator: DP853 (ROCm/HIP, FP32) | absTol: 1e-6 | relTol: 1e-6"
@@ -939,7 +940,6 @@ int main(int argc, char** argv) {
         out << "# detectionDistance: " << PhysConst::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysConst::rangeMin << " m\n";
         out << "# rangeMax: " << PhysConst::rangeMax << " m\n";
-        out << "# spin: " << PhysConst::spin << "\n";
         out << "# spinOrientation: " << (PhysConst::spin >= 0 ? "+z (along propagation)" : "-z (against propagation)") << "\n";
         out << "# theta0: " << (PhysConst::spin >= 0 ? 0.0 : M_PI) << " rad  (polar angle of spin axis)\n";
         out << "# phi0: 0.0 rad  (azimuthal angle of spin axis)\n";

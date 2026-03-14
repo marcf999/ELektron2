@@ -1,0 +1,27 @@
+# ELektron2 CUDA Simulation Results
+# Date: 2026-03-08 22:20:21
+# Integrator: DP853 (CUDA, GPU: NVIDIA GeForce RTX 5070 Laptop GPU)
+# DP853 absTol: 9.9999999999999998e-13  relTol: 9.9999999999999998e-13  minStep: 1e-10  maxStep: 10
+# Kernel time: 57214 ms
+# Total time: 57215 ms
+# Total simulations: 1
+# startEnergy: 5000 eV
+# startPos: -14663.993697025551 (reduced)
+# detectionDistance: 14663.993697025551 (reduced)
+# rangeMin: 1e-13 m
+# rangeMax: 9.9999999999999998e-13 m
+# spin: 1
+# Z: 6
+# alpha: 0.0072992700729926996
+# reducedBohr: 274.49813790303745
+# zitterRadius: 1.93079634e-13 m
+# atomCount: 30
+# atomSpacing: 735.44784117417589 (reduced) = 1.42e-10 m
+# chainHalfLength: 10663.993697025551 (reduced)
+# maxTime: 1000000 (reduced)
+# Summary: isNaN=0 isPos=0 isNeg=1
+#
+# Columns:
+# idx qx qy qz rx ry rz vx vy vz ux uy uz energyIn_eV energyOut_eV angle_deg steps apexCharge exitCode dxZERO_reduced psi0
+#
+0 0.9489213228225708 8.5035713798196719e-18 -12733.0126953125 1.5216919183731079 1.0786315756045918e-14 -12733.4638671875 0 0 0.1388738602399826 0.73318886756896973 1.3690825613498804e-14 0.81668668985366821 5000 4999.9996565295614 270.00426993894439 2000000 2068.712890625 3 2.1003109648286281e-13 4.6422942316317206

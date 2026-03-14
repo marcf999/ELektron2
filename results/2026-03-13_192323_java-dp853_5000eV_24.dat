@@ -1,0 +1,26 @@
+# ELektron2 Java Simulation Results
+# Date: 2026-03-13 19:23:23
+# Integrator: DormandPrince853 (commons-math3)
+# DP853 minStep: 1.0E-10  maxStep: 10.0  absTol: 1.0E-12  relTol: 1.0E-12
+# Java: 25.0.2  OS: Windows 11 amd64
+# Cores: 24
+# Total time: 8172 ms
+# Total simulations: 24
+# Detected: 1
+# Detected ratio: 4.166666666666667%
+# Detector: 100.0mm x 100.0mm at 1.0m
+# startEnergy: 5000.0 eV
+# startPos: -14663.993697025551 (reduced)
+# detectionDistance: 14663.993697025551 (reduced)
+# rangeMin: 1.0E-12 m
+# rangeMax: 1.0E-10 m
+# spin: 1
+# Z: 6.0
+# atomCount: 30
+# atomSpacing: 735.4478411741759 (reduced) = 1.42E-10 m
+# chainHalfLength: 10663.993697025551 (reduced)
+#
+# Columns:
+# idx qx qy qz rx ry rz vx vy vz ux uy uz energyIn_eV energyOut_eV angle_deg steps elapsedMs dxZERO_reduced psi0 xDet_mm yDet_mm
+#
+0 -823.4944137091123 0.6589737418673696 14614.720408968506 -824.4809225288086 0.8155177288666527 14614.720421372593 -0.0069098885403147325 5.48578152677868E-6 0.13870185182775238 0.15521075463085854 0.9780960664519874 0.1387000594983227 5000.0 4999.9999806959795 93.22503019300929 1024626 8162 -177.61706626965878 0.33082859765879247 -49.81828612422431 0.03955088886333851

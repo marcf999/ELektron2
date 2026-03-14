@@ -1,0 +1,28 @@
+# ELektron2 C++ Simulation Results
+# Date: 2026-03-13 18:34:00
+# Integrator: DP853 (self-contained)
+# DP853 absTol: 9.9999999999999998e-13  relTol: 9.9999999999999998e-13  minStep: 1e-10  maxStep: 10
+# Cores: 24
+# Total time: 2810 ms
+# Total simulations: 24
+# Detected: 0
+# Detected ratio: 0%
+# Detector: 1 m, 100 mm x 100 mm aperture
+# startEnergy: 5000 eV
+# startPos: -14663.993697025551 (reduced)
+# detectionDistance: 14663.993697025551 (reduced)
+# rangeMin: 9.9999999999999998e-13 m
+# rangeMax: 1e-10 m
+# spin: 1
+# Z: 6
+# alpha: 0.0072992700729926996
+# reducedBohr: 274.49813790303745
+# zitterRadius: 1.93079634e-13 m
+# atomCount: 30
+# atomSpacing: 735.44784117417589 (reduced) = 1.42e-10 m
+# chainHalfLength: 10663.993697025551 (reduced)
+# maxTime: 1000000 (reduced)
+#
+# Columns:
+# idx qx qy qz rx ry rz vx vy vz ux uy uz energyIn_eV energyOut_eV angle_deg steps elapsedMs dxZERO_reduced psi0 xDet_mm yDet_mm
+#
