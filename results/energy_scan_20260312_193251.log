@@ -1,0 +1,266 @@
+============================================================
+[1/9] Running 750000 electrons at 5003.0 eV
+Started: Thu Mar 12 07:32:51 PM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5003 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 108.1 e/s | Elapsed: 6935.1s
+Progress: 750000/750000 (100.0%) | Detected: 26920 | Elapsed: 6935.1s
+
+=== SUMMARY ===
+isNaN: 145 | isPos: 24153 | isNeg: 783 | xyEscape: 724919
+DETECTED: 26920/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5003 eV
+Total steps: 426104877537 | Avg steps/electron: 568139
+KERNEL TIME: 6935137 ms (108.1 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 6935368 ms
+Wrote 26920 detected electrons (of 750000) to ../results/2026-03-12_212827_rocm-dp853_5003eV_750000.dat
+
+>>> 5003.0 eV: 26920/750000 detected (3.6%) in 6935.1s
+>>> Scan progress: 1/9 | Elapsed: 1h55m | ETA: 15h24m
+
+============================================================
+[2/9] Running 750000 electrons at 5003.5 eV
+Started: Thu Mar 12 09:28:27 PM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5004 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 117.1 e/s | Elapsed: 6405.9s
+Progress: 750000/750000 (100.0%) | Detected: 27008 | Elapsed: 6405.9s
+
+=== SUMMARY ===
+isNaN: 140 | isPos: 24062 | isNeg: 749 | xyEscape: 725049
+DETECTED: 27008/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5004 eV
+Total steps: 426600243703 | Avg steps/electron: 568800
+KERNEL TIME: 6405939 ms (117.1 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 6406169 ms
+Wrote 27008 detected electrons (of 750000) to ../results/2026-03-12_231513_rocm-dp853_5004eV_750000.dat
+
+>>> 5003.5 eV: 27008/750000 detected (3.6%) in 6405.9s
+>>> Scan progress: 2/9 | Elapsed: 3h42m | ETA: 12h58m
+
+============================================================
+[3/9] Running 750000 electrons at 5004.0 eV
+Started: Thu Mar 12 11:15:13 PM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5004 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 108.2 e/s | Elapsed: 6932.4s
+Progress: 750000/750000 (100.0%) | Detected: 26772 | Elapsed: 6932.5s
+
+=== SUMMARY ===
+isNaN: 153 | isPos: 23808 | isNeg: 805 | xyEscape: 725234
+DETECTED: 26772/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5004 eV
+Total steps: 426180308512 | Avg steps/electron: 568240
+KERNEL TIME: 6932477 ms (108.2 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 6932708 ms
+Wrote 26772 detected electrons (of 750000) to ../results/2026-03-13_011046_rocm-dp853_5004eV_750000.dat
+
+>>> 5004.0 eV: 26772/750000 detected (3.6%) in 6932.4s
+>>> Scan progress: 3/9 | Elapsed: 5h37m | ETA: 11h15m
+
+============================================================
+[4/9] Running 750000 electrons at 5004.5 eV
+Started: Fri Mar 13 01:10:47 AM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5004 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 120.3 e/s | Elapsed: 6235.3s
+Progress: 750000/750000 (100.0%) | Detected: 26953 | Elapsed: 6235.3s
+
+=== SUMMARY ===
+isNaN: 150 | isPos: 23668 | isNeg: 802 | xyEscape: 725380
+DETECTED: 26953/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5004 eV
+Total steps: 426230832121 | Avg steps/electron: 568307
+KERNEL TIME: 6235305 ms (120.3 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 6235537 ms
+Wrote 26953 detected electrons (of 750000) to ../results/2026-03-13_025442_rocm-dp853_5004eV_750000.dat
+
+>>> 5004.5 eV: 26953/750000 detected (3.6%) in 6235.3s
+>>> Scan progress: 4/9 | Elapsed: 7h21m | ETA: 9h12m
+
+============================================================
+[5/9] Running 750000 electrons at 5005.0 eV
+Started: Fri Mar 13 02:54:42 AM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5005 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 132.1 e/s | Elapsed: 5677.3s
+Progress: 750000/750000 (100.0%) | Detected: 26647 | Elapsed: 5677.3s
+
+=== SUMMARY ===
+isNaN: 159 | isPos: 23615 | isNeg: 741 | xyEscape: 725485
+DETECTED: 26647/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5005 eV
+Total steps: 426487383293 | Avg steps/electron: 568649
+KERNEL TIME: 5677331 ms (132.1 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 5677562 ms
+Wrote 26647 detected electrons (of 750000) to ../results/2026-03-13_042920_rocm-dp853_5005eV_750000.dat
+
+>>> 5005.0 eV: 26647/750000 detected (3.6%) in 5677.3s
+>>> Scan progress: 5/9 | Elapsed: 8h56m | ETA: 7h9m
+
+============================================================
+[6/9] Running 750000 electrons at 5005.5 eV
+Started: Fri Mar 13 04:29:20 AM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5006 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 119.4 e/s | Elapsed: 6283.5s
+Progress: 750000/750000 (100.0%) | Detected: 26946 | Elapsed: 6283.5s
+
+=== SUMMARY ===
+isNaN: 142 | isPos: 24205 | isNeg: 770 | xyEscape: 724883
+DETECTED: 26946/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5006 eV
+Total steps: 426488709642 | Avg steps/electron: 568651
+KERNEL TIME: 6283498 ms (119.4 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 6283730 ms
+Wrote 26946 detected electrons (of 750000) to ../results/2026-03-13_061404_rocm-dp853_5006eV_750000.dat
+
+>>> 5005.5 eV: 26946/750000 detected (3.6%) in 6283.4s
+>>> Scan progress: 6/9 | Elapsed: 10h41m | ETA: 5h20m
+
+============================================================
+[7/9] Running 750000 electrons at 5006.0 eV
+Started: Fri Mar 13 06:14:04 AM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5006 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 111.0 e/s | Elapsed: 6756.6s
+Progress: 750000/750000 (100.0%) | Detected: 26828 | Elapsed: 6756.6s
+
+=== SUMMARY ===
+isNaN: 165 | isPos: 23626 | isNeg: 737 | xyEscape: 725472
+DETECTED: 26828/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5006 eV
+Total steps: 426030807808 | Avg steps/electron: 568041
+KERNEL TIME: 6756635 ms (111.0 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 6756866 ms
+Wrote 26828 detected electrons (of 750000) to ../results/2026-03-13_080641_rocm-dp853_5006eV_750000.dat
+
+>>> 5006.0 eV: 26828/750000 detected (3.6%) in 6756.6s
+>>> Scan progress: 7/9 | Elapsed: 12h33m | ETA: 3h35m
+
+============================================================
+[8/9] Running 750000 electrons at 5006.5 eV
+Started: Fri Mar 13 08:06:42 AM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5006 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 127.1 e/s | Elapsed: 5899.2s
+Progress: 750000/750000 (100.0%) | Detected: 26742 | Elapsed: 5899.3s
+
+=== SUMMARY ===
+isNaN: 145 | isPos: 23800 | isNeg: 800 | xyEscape: 725255
+DETECTED: 26742/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5006 eV
+Total steps: 426257840166 | Avg steps/electron: 568343
+KERNEL TIME: 5899262 ms (127.1 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 5899494 ms
+Wrote 26742 detected electrons (of 750000) to ../results/2026-03-13_094501_rocm-dp853_5006eV_750000.dat
+
+>>> 5006.5 eV: 26742/750000 detected (3.6%) in 5899.2s
+>>> Scan progress: 8/9 | Elapsed: 14h12m | ETA: 1h46m
+
+============================================================
+[9/9] Running 750000 electrons at 5007.0 eV
+Started: Fri Mar 13 09:45:02 AM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5007 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
+Progress: 750000/750000 (100.0%) | 126.1 e/s | Elapsed: 5949.6s
+Progress: 750000/750000 (100.0%) | Detected: 27205 | Elapsed: 5949.6s
+
+=== SUMMARY ===
+isNaN: 153 | isPos: 24293 | isNeg: 742 | xyEscape: 724812
+DETECTED: 27205/750000 (3.6%)
+Detector: 100mm x 100mm aperture at 1.00m
+Energy: 5007 eV
+Total steps: 426841696285 | Avg steps/electron: 569122
+KERNEL TIME: 5949637 ms (126.1 electrons/sec)
+TOTAL TIME FOR 750000 SIMULATIONS: 5949869 ms
+Wrote 27205 detected electrons (of 750000) to ../results/2026-03-13_112412_rocm-dp853_5007eV_750000.dat
+
+>>> 5007.0 eV: 27205/750000 detected (3.6%) in 5949.6s
+>>> Scan progress: 9/9 | Elapsed: 15h51m | ETA: 0h0m
+
+============================================================
+SCAN COMPLETE
+Results: /home/hotaisle/ELektron2/cpp/scripts/../../results/energy_scan_20260312_193251.csv
+============================================================
+energy_eV,detected,total,pct,kernel_time_s,throughput_e_per_s
+5003.0,26920,750000,3.6,6935.1,108.1
+5003.5,27008,750000,3.6,6405.9,117.1
+5004.0,26772,750000,3.6,6932.4,108.2
+5004.5,26953,750000,3.6,6235.3,120.3
+5005.0,26647,750000,3.6,5677.3,132.1
+5005.5,26946,750000,3.6,6283.4,119.4
+5006.0,26828,750000,3.6,6756.6,111.0
+5006.5,26742,750000,3.6,5899.2,127.1
+5007.0,27205,750000,3.6,5949.6,126.1

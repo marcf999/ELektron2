@@ -1,0 +1,12 @@
+============================================================
+[1/9] Running 750000 electrons at 5003.0 eV
+Started: Thu Mar 12 07:32:24 PM UTC 2026
+============================================================
+GPU: AMD Instinct MI300X VF | GCN Arch: gfx942:sramecc+:xnack- | 304 CUs | 196288 MB VRAM
+PARAMS | rangeMin: 1.00e-12 | rangeMax: 1.00e-10 | startEnergy: 5003 eV | spin: 1 | Z: 6 | atoms: 30 | spacing: 735.4 (reduced)
+Integrator: DP853 (ROCm/HIP, FP64) | absTol: 1e-12 | relTol: 1e-12 | minStep: 1e-10 | maxStep: 10.0
+Running 750000 simulations on GPU.
+
+Running 750000 electrons in batches of 77824 (block 256, grid 304)
+XY boundary: 823.5 reduced units (3 * Bohr radius)
+Detector: 100mm x 100mm aperture at 1.00m
