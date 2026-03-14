@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <string>
 
 // ============================================================================
 // CUDA error checking
@@ -50,7 +51,27 @@ namespace PhysConst {
 
     constexpr double rangeMin = 1e-13;
     constexpr double rangeMax = 1e-12;
-    constexpr int spin = +1;
+
+    // Spin axis: set at runtime via CLI (default: +z)
+    inline double spinTheta0 = 0.0;
+    inline double spinPhi0   = 0.0;
+    inline std::string spinLabel = "+z";
+
+    inline bool spinRandom = false;  // when true, each electron gets a random spin axis
+
+    inline void setSpinAxis(const std::string& axis) {
+        if (axis == "+z" || axis == "z")       { spinTheta0 = 0.0;        spinPhi0 = 0.0;           spinLabel = "+z"; }
+        else if (axis == "-z")                 { spinTheta0 = M_PI;       spinPhi0 = 0.0;           spinLabel = "-z"; }
+        else if (axis == "+x" || axis == "x")  { spinTheta0 = M_PI/2.0;  spinPhi0 = 0.0;           spinLabel = "+x"; }
+        else if (axis == "-x")                 { spinTheta0 = M_PI/2.0;  spinPhi0 = M_PI;          spinLabel = "-x"; }
+        else if (axis == "+y" || axis == "y")  { spinTheta0 = M_PI/2.0;  spinPhi0 = M_PI/2.0;     spinLabel = "+y"; }
+        else if (axis == "-y")                 { spinTheta0 = M_PI/2.0;  spinPhi0 = 3.0*M_PI/2.0;  spinLabel = "-y"; }
+        else if (axis == "random" || axis == "rand") { spinRandom = true; spinLabel = "random"; }
+        else {
+            fprintf(stderr, "Unknown spin axis: '%s'. Use: +x,-x,+y,-y,+z,-z,random\n", axis.c_str());
+            exit(1);
+        }
+    }
 
     constexpr double carbonProtons = 6.0;
     constexpr double alpha = 0.007299270072992700;
@@ -628,9 +649,16 @@ ElectronInput generateElectron(double energy, double rangeMin, double rangeMax,
 
     double Xdotx0 = 0.0, Xdoty0 = 0.0, Xdotz0 = velocity0;
 
-    // Initialize spin along z-axis (axis of propagation)
-    double theta0 = (spin >= 0) ? 0.0 : M_PI;
-    double phi0 = 0.0;
+    // Initialize spin axis — uniform random on sphere if "random", else fixed
+    double theta0, phi0;
+    if (spinRandom) {
+        std::uniform_real_distribution<double> uni01(0.0, 1.0);
+        theta0 = std::acos(1.0 - 2.0 * uni01(rng));
+        phi0   = 2.0 * M_PI * uni01(rng);
+    } else {
+        theta0 = spinTheta0;
+        phi0   = spinPhi0;
+    }
     double psi0 = phaseDist(rng);
     e.psi0 = psi0;
 
@@ -693,10 +721,16 @@ double getAngle(const real* state) {
 int main(int argc, char** argv) {
     PhysConst::init();
 
-    // Parse args: elektron2_cuda [numElectrons]
+    // Parse args: elektron2_cuda [numElectrons] [energyEV] [spinAxis]
     int totalSimulations = PhysConst::defaultSimulations;
     if (argc > 1) totalSimulations = std::atoi(argv[1]);
     if (totalSimulations < 1) totalSimulations = 1;
+    double energyEV = PhysConst::startEnergy;
+    if (argc > 2) {
+        double e = std::atof(argv[2]);
+        if (e > 0) energyEV = e;
+    }
+    if (argc > 3) PhysConst::setSpinAxis(argv[3]);
 
     // GPU info
     int deviceId;
@@ -710,9 +744,9 @@ int main(int argc, char** argv) {
            prop.totalGlobalMem / (1024.0 * 1024.0));
 
     printf("PARAMS | rangeMin: %.2e | rangeMax: %.2e | startEnergy: %.0f eV"
-           " | spin: %d | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
-           PhysConst::rangeMin, PhysConst::rangeMax, PhysConst::startEnergy,
-           PhysConst::spin, PhysConst::carbonProtons,
+           " | spin: %s | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
+           PhysConst::rangeMin, PhysConst::rangeMax, energyEV,
+           PhysConst::spinLabel.c_str(), PhysConst::carbonProtons,
            PhysConst::atomCount, PhysConst::atomSpacing);
 #ifdef USE_FLOAT
     printf("Integrator: DP853 (CUDA, FP32) | absTol: 1e-6 | relTol: 1e-6"
@@ -734,7 +768,7 @@ int main(int argc, char** argv) {
     std::vector<ElectronInput> h_inputs(totalSimulations);
     std::mt19937 rng(std::random_device{}());
     for (int i = 0; i < totalSimulations; i++) {
-        h_inputs[i] = generateElectron(PhysConst::startEnergy,
+        h_inputs[i] = generateElectron(energyEV,
             PhysConst::rangeMin, PhysConst::rangeMax, rng);
     }
 
@@ -826,8 +860,11 @@ int main(int argc, char** argv) {
         std::strftime(timeFmt, sizeof(timeFmt), "%H%M%S", std::localtime(&nowTime));
 
         std::string resultsDir = "/mnt/c/Users/marcf/IdeaProjects/ELektron2/results/";
+        char energyStr[32];
+        std::snprintf(energyStr, sizeof(energyStr), "%.0f", energyEV);
         std::string resultsFile = std::string(dateBuf) + "_" + timeFmt
-            + "_cuda-dp853_" + std::to_string(totalSimulations) + ".dat";
+            + "_cuda-dp853_" + energyStr + "eV_spin" + PhysConst::spinLabel
+            + "_" + std::to_string(totalSimulations) + ".dat";
         std::string resultsPath = resultsDir + resultsFile;
 
         std::ofstream out(resultsPath);
@@ -847,12 +884,15 @@ int main(int argc, char** argv) {
         out << "# Kernel time: " << kernelMs << " ms\n";
         out << "# Total time: " << totalMs << " ms\n";
         out << "# Total simulations: " << totalSimulations << "\n";
-        out << "# startEnergy: " << PhysConst::startEnergy << " eV\n";
+        out << "# startEnergy: " << energyEV << " eV\n";
         out << "# startPos: " << PhysConst::startPos << " (reduced)\n";
         out << "# detectionDistance: " << PhysConst::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysConst::rangeMin << " m\n";
         out << "# rangeMax: " << PhysConst::rangeMax << " m\n";
-        out << "# spin: " << PhysConst::spin << "\n";
+        out << "# spin: " << PhysConst::spinLabel << "\n";
+        out << "# spinOrientation: " << PhysConst::spinLabel << "\n";
+        out << "# theta0: " << PhysConst::spinTheta0 << " rad\n";
+        out << "# phi0: " << PhysConst::spinPhi0 << " rad\n";
         out << "# Z: " << PhysConst::carbonProtons << "\n";
         out << "# alpha: " << PhysConst::alpha << "\n";
         out << "# reducedBohr: " << PhysConst::reducedBohr << "\n";

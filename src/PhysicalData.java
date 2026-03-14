@@ -3,7 +3,27 @@ public class PhysicalData {
     // Impact parameter range in meters
     public static double rangeMin = 1e-12d, rangeMax = 1e-10d;
 
-    public static int spin = +1;
+    // Spin axis: set at runtime via CLI (default: +z)
+    public static double spinTheta0 = 0.0;
+    public static double spinPhi0   = 0.0;
+    public static String spinLabel  = "+z";
+
+    public static boolean spinRandom = false;  // when true, each electron gets a random spin axis
+
+    public static void setSpinAxis(String axis) {
+        switch (axis) {
+            case "+z": case "z":  spinTheta0 = 0.0;              spinPhi0 = 0.0;               spinLabel = "+z"; break;
+            case "-z":            spinTheta0 = Math.PI;           spinPhi0 = 0.0;               spinLabel = "-z"; break;
+            case "+x": case "x":  spinTheta0 = Math.PI / 2.0;    spinPhi0 = 0.0;               spinLabel = "+x"; break;
+            case "-x":            spinTheta0 = Math.PI / 2.0;    spinPhi0 = Math.PI;            spinLabel = "-x"; break;
+            case "+y": case "y":  spinTheta0 = Math.PI / 2.0;    spinPhi0 = Math.PI / 2.0;     spinLabel = "+y"; break;
+            case "-y":            spinTheta0 = Math.PI / 2.0;    spinPhi0 = 3.0 * Math.PI / 2.0; spinLabel = "-y"; break;
+            case "random": case "rand": spinRandom = true; spinLabel = "random"; break;
+            default:
+                System.err.println("Unknown spin axis: '" + axis + "'. Use: +x,-x,+y,-y,+z,-z,random");
+                System.exit(1);
+        }
+    }
 
     // Zitter radius in m: hbar/(2mc)
     public static double zitterRadius = 1.93079634e-13d;

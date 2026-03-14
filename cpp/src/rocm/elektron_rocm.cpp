@@ -27,6 +27,7 @@
 #include <limits>
 #include <thread>
 #include <atomic>
+#include <string>
 
 // ============================================================================
 // HIP error checking
@@ -58,12 +59,31 @@ namespace PhysConst {
 
     constexpr double rangeMin = 1e-12;
     constexpr double rangeMax = 1e-10;
-    constexpr int spin = +1;
+    // Spin axis: set at runtime via CLI (default: +z)
+    double spinTheta0 = 0.0;   // polar angle of spin axis
+    double spinPhi0   = 0.0;   // azimuthal angle of spin axis
+    std::string spinLabel = "+z";
 
     constexpr double carbonProtons = 6.0;
     constexpr double alpha = 0.007299270072992700;
     constexpr double bohrRadius = 5.3e-11;
     constexpr double m0c2 = 5.11e+5;
+
+    bool spinRandom = false;  // when true, each electron gets a random spin axis
+
+    void setSpinAxis(const std::string& axis) {
+        if (axis == "+z" || axis == "z")       { spinTheta0 = 0.0;        spinPhi0 = 0.0;           spinLabel = "+z"; }
+        else if (axis == "-z")                 { spinTheta0 = M_PI;       spinPhi0 = 0.0;           spinLabel = "-z"; }
+        else if (axis == "+x" || axis == "x")  { spinTheta0 = M_PI/2.0;  spinPhi0 = 0.0;           spinLabel = "+x"; }
+        else if (axis == "-x")                 { spinTheta0 = M_PI/2.0;  spinPhi0 = M_PI;          spinLabel = "-x"; }
+        else if (axis == "+y" || axis == "y")  { spinTheta0 = M_PI/2.0;  spinPhi0 = M_PI/2.0;     spinLabel = "+y"; }
+        else if (axis == "-y")                 { spinTheta0 = M_PI/2.0;  spinPhi0 = 3.0*M_PI/2.0;  spinLabel = "-y"; }
+        else if (axis == "random" || axis == "rand") { spinRandom = true; spinLabel = "random"; }
+        else {
+            fprintf(stderr, "Unknown spin axis: '%s'. Use: +x,-x,+y,-y,+z,-z,random\n", axis.c_str());
+            exit(1);
+        }
+    }
 
     constexpr double dp853AbsTol = 1e-12;
     constexpr double dp853RelTol = 1e-12;
@@ -647,9 +667,16 @@ ElectronInput generateElectron(double energy, double rangeMin, double rangeMax,
 
     double Xdotx0 = 0.0, Xdoty0 = 0.0, Xdotz0 = velocity0;
 
-    // Initialize spin along z-axis (axis of propagation)
-    double theta0 = (spin >= 0) ? 0.0 : M_PI;
-    double phi0 = 0.0;
+    // Initialize spin axis — uniform random on sphere if "random", else fixed
+    double theta0, phi0;
+    if (spinRandom) {
+        std::uniform_real_distribution<double> uni01(0.0, 1.0);
+        theta0 = std::acos(1.0 - 2.0 * uni01(rng));   // uniform on sphere
+        phi0   = 2.0 * M_PI * uni01(rng);
+    } else {
+        theta0 = spinTheta0;
+        phi0   = spinPhi0;
+    }
     double psi0 = phaseDist(rng);
     e.psi0 = psi0;
 
@@ -719,13 +746,15 @@ int main(int argc, char** argv) {
         HIP_CHECK(hipSetDevice(gpuId));
     }
 
-    // Parse args: elektron2_rocm [numElectrons] [energyEV]
+    // Parse args: elektron2_rocm [numElectrons] [energyEV] [spinAxis]
+    //   spinAxis: +x, -x, +y, -y, +z, -z (default: +z)
     int totalSimulations = PhysConst::defaultSimulations;
     if (argc > 1) totalSimulations = std::atoi(argv[1]);
     if (totalSimulations < 1) totalSimulations = 1;
     double energyEV = PhysConst::startEnergy;
     if (argc > 2) energyEV = std::atof(argv[2]);
     if (energyEV <= 0) energyEV = PhysConst::startEnergy;
+    if (argc > 3) PhysConst::setSpinAxis(argv[3]);
 
     // GPU info
     int deviceId;
@@ -739,9 +768,9 @@ int main(int argc, char** argv) {
            prop.totalGlobalMem / (1024.0 * 1024.0));
 
     printf("PARAMS | rangeMin: %.2e | rangeMax: %.2e | startEnergy: %.0f eV"
-           " | spin: %sz | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
+           " | spin: %s | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
            PhysConst::rangeMin, PhysConst::rangeMax, energyEV,
-           PhysConst::spin >= 0 ? "+" : "-",
+           PhysConst::spinLabel.c_str(),
            PhysConst::carbonProtons,
            PhysConst::atomCount, PhysConst::atomSpacing);
 #ifdef USE_FLOAT
@@ -915,7 +944,8 @@ int main(int argc, char** argv) {
         char energyStr[32];
         std::snprintf(energyStr, sizeof(energyStr), "%.0feV", energyEV);
         std::string resultsFile = std::string(dateBuf) + "_" + timeFmt
-            + "_rocm-dp853_" + energyStr + "_" + std::to_string(totalSimulations) + ".dat";
+            + "_rocm-dp853_" + energyStr + "_spin" + PhysConst::spinLabel
+            + "_" + std::to_string(totalSimulations) + ".dat";
         std::string resultsPath = resultsDir + resultsFile;
 
         std::ofstream out(resultsPath);
@@ -940,9 +970,9 @@ int main(int argc, char** argv) {
         out << "# detectionDistance: " << PhysConst::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysConst::rangeMin << " m\n";
         out << "# rangeMax: " << PhysConst::rangeMax << " m\n";
-        out << "# spinOrientation: " << (PhysConst::spin >= 0 ? "+z (along propagation)" : "-z (against propagation)") << "\n";
-        out << "# theta0: " << (PhysConst::spin >= 0 ? 0.0 : M_PI) << " rad  (polar angle of spin axis)\n";
-        out << "# phi0: 0.0 rad  (azimuthal angle of spin axis)\n";
+        out << "# spinOrientation: " << PhysConst::spinLabel << "\n";
+        out << "# theta0: " << PhysConst::spinTheta0 << " rad  (polar angle of spin axis)\n";
+        out << "# phi0: " << PhysConst::spinPhi0 << " rad  (azimuthal angle of spin axis)\n";
         out << "# psi0: random [0, 2pi)  (zitter phase, per-electron)\n";
         out << "# Z: " << PhysConst::carbonProtons << "\n";
         out << "# alpha: " << PhysConst::alpha << "\n";

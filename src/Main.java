@@ -38,11 +38,12 @@ public class Main {
             try { energyEV = Double.parseDouble(args[1]); } catch (NumberFormatException ignored) {}
         }
         if (energyEV <= 0) energyEV = PhysicalData.startEnergy;
+        if (args.length > 2) PhysicalData.setSpinAxis(args[2]);
 
         double rangeMin = PhysicalData.rangeMin, rangeMax = PhysicalData.rangeMax;
 
         System.out.println("PARAMS | rangeMin: " + rangeMin + " | rangeMax: " + rangeMax +
-                " | startEnergy: " + energyEV + " | spin: " + PhysicalData.spin +
+                " | startEnergy: " + energyEV + " | spin: " + PhysicalData.spinLabel +
                 " | Z: " + PhysicalData.carbonProtons +
                 " | atoms: " + PhysicalData.atomCount);
         System.out.println("Integrator: DormandPrince853 | relTol: " + PhysicalData.relTol +
@@ -133,7 +134,8 @@ public class Main {
         }
         if (!resultsDir.exists()) resultsDir.mkdirs();
         String resultsFile = datePart + "_" + timePart + "_java-dp853_"
-                + String.format("%.0f", energyEV) + "eV_" + totalSimulations + ".dat";
+                + String.format("%.0f", energyEV) + "eV_spin" + PhysicalData.spinLabel
+                + "_" + totalSimulations + ".dat";
         File resultsPath = new File(resultsDir, resultsFile);
 
         try (PrintWriter out = new PrintWriter(new FileWriter(resultsPath))) {
@@ -156,12 +158,10 @@ public class Main {
             out.println("# detectionDistance: " + repr(PhysicalData.detectionDistance) + " (reduced)");
             out.println("# rangeMin: " + repr(PhysicalData.rangeMin) + " m");
             out.println("# rangeMax: " + repr(PhysicalData.rangeMax) + " m");
-            out.println("# spin: " + PhysicalData.spin);
-            String spinLabel = (PhysicalData.spin >= 0) ? "+z (along propagation)" : "-z (against propagation)";
-            double theta0val = (PhysicalData.spin >= 0) ? 0.0 : Math.PI;
-            out.println("# spinOrientation: " + spinLabel);
-            out.println("# theta0: " + repr(theta0val) + " rad  (polar angle of spin axis)");
-            out.println("# phi0: 0.0 rad  (azimuthal angle of spin axis)");
+            out.println("# spin: " + PhysicalData.spinLabel);
+            out.println("# spinOrientation: " + PhysicalData.spinLabel);
+            out.println("# theta0: " + repr(PhysicalData.spinTheta0) + " rad  (polar angle of spin axis)");
+            out.println("# phi0: " + repr(PhysicalData.spinPhi0) + " rad  (azimuthal angle of spin axis)");
             out.println("# psi0: random [0, 2pi)  (zitter phase, per-electron)");
             out.println("# Z: " + repr(PhysicalData.carbonProtons));
             out.println("# atomCount: " + PhysicalData.atomCount);
@@ -283,7 +283,7 @@ public class Main {
             public void resetState(double t, double[] y) {}
         }, 1.0, 1e-6, 100);
 
-        // Event handler: stop if |qx| exceeds 10 Bohr radii (positive side)
+        // Event handler: stop if qx exceeds xyBoundary (3 * reducedBohr, positive side)
         integrator.addEventHandler(new EventHandler() {
             @Override
             public void init(double t0, double[] y0, double t) {}
@@ -302,7 +302,7 @@ public class Main {
             public void resetState(double t, double[] y) {}
         }, 1.0, 1e-6, 100);
 
-        // Event handler: stop if |qx| exceeds 10 Bohr radii (negative side)
+        // Event handler: stop if qx exceeds xyBoundary (3 * reducedBohr, negative side)
         integrator.addEventHandler(new EventHandler() {
             @Override
             public void init(double t0, double[] y0, double t) {}
@@ -321,7 +321,7 @@ public class Main {
             public void resetState(double t, double[] y) {}
         }, 1.0, 1e-6, 100);
 
-        // Event handler: stop if |qy| exceeds 10 Bohr radii (positive side)
+        // Event handler: stop if qy exceeds xyBoundary (3 * reducedBohr, positive side)
         integrator.addEventHandler(new EventHandler() {
             @Override
             public void init(double t0, double[] y0, double t) {}
@@ -340,7 +340,7 @@ public class Main {
             public void resetState(double t, double[] y) {}
         }, 1.0, 1e-6, 100);
 
-        // Event handler: stop if |qy| exceeds 10 Bohr radii (negative side)
+        // Event handler: stop if qy exceeds xyBoundary (3 * reducedBohr, negative side)
         integrator.addEventHandler(new EventHandler() {
             @Override
             public void init(double t0, double[] y0, double t) {}

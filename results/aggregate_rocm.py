@@ -1,33 +1,32 @@
 import os, re, math
 from collections import defaultdict
 
-data = defaultdict(lambda: {"detected": 0, "total": 0, "files": []})
+data = defaultdict(lambda: {"forward_exit": 0, "total": 0, "files": []})
 
 for fname in sorted(os.listdir("results")):
     if "rocm" not in fname or not fname.endswith(".dat"):
         continue
     path = os.path.join("results", fname)
-    energy = detected = total = None
+    energy = total = None
+    forward_exit = 0
     with open(path) as f:
         for line in f:
             if line.startswith("# startEnergy:"):
                 energy = float(line.split(":")[1].strip().replace(" eV",""))
             elif line.startswith("# Total simulations:"):
                 total = int(line.split(":")[1].strip())
-            elif line.startswith("# Detected:"):
-                detected = int(line.split(":")[1].strip())
-            if energy and total and detected is not None:
-                break
-    if energy is not None and total and detected is not None:
-        data[energy]["detected"] += detected
+            elif not line.startswith("#"):
+                forward_exit += 1
+    if energy is not None and total:
+        data[energy]["forward_exit"] += forward_exit
         data[energy]["total"] += total
         data[energy]["files"].append(fname)
 
 # Write CSV
 with open("results/rocm_summary.csv", "w") as csv:
-    csv.write("energy_eV,detected,total,percent,stderr_pct,files\n")
+    csv.write("energy_eV,forward_exit,total,percent,stderr_pct,files\n")
     for e in sorted(data):
-        d = data[e]["detected"]
+        d = data[e]["forward_exit"]
         n = data[e]["total"]
         p = d / n
         se = math.sqrt(p * (1 - p) / n) if n > 0 else 0
@@ -37,14 +36,13 @@ with open("results/rocm_summary.csv", "w") as csv:
 with open("results/rocm_summary.log", "w") as log:
     log.write("=" * 80 + "\n")
     log.write("ELektron2 ROCm Energy Scan — Aggregated Summary\n")
-    log.write(f"Generated: 2026-03-13\n")
     log.write("=" * 80 + "\n\n")
-    log.write(f"{'Energy':>10} {'Detected':>10} {'Total':>10} {'Rate %':>10} {'±1σ %':>10} {'±2σ %':>10} {'Files':>6}\n")
+    log.write(f"{'Energy':>10} {'FwdExit':>10} {'Total':>10} {'Rate %':>10} {'±1σ %':>10} {'±2σ %':>10} {'Files':>6}\n")
     log.write("-" * 68 + "\n")
 
     results = []
     for e in sorted(data):
-        d = data[e]["detected"]
+        d = data[e]["forward_exit"]
         n = data[e]["total"]
         p = d / n
         se = math.sqrt(p * (1 - p) / n) if n > 0 else 0
@@ -62,11 +60,11 @@ with open("results/rocm_summary.log", "w") as log:
 
     # Find peak
     peak = max(results, key=lambda r: r[3])
-    log.write(f"Peak detection: {peak[0]:.2f} eV at {100*peak[3]:.4f}% ± {100*peak[4]:.4f}%\n")
+    log.write(f"Peak forward exit: {peak[0]:.2f} eV at {100*peak[3]:.4f}% ± {100*peak[4]:.4f}%\n")
 
     # Find minimum
     trough = min(results, key=lambda r: r[3])
-    log.write(f"Min  detection: {trough[0]:.2f} eV at {100*trough[3]:.4f}% ± {100*trough[4]:.4f}%\n\n")
+    log.write(f"Min  forward exit: {trough[0]:.2f} eV at {100*trough[3]:.4f}% ± {100*trough[4]:.4f}%\n\n")
 
     # Statistical significance: peak vs trough
     z = (peak[3] - trough[3]) / math.sqrt(peak[4]**2 + trough[4]**2)
@@ -79,7 +77,7 @@ with open("results/rocm_summary.log", "w") as log:
         log.write(" (<2σ, not significant)\n")
 
     # Chi-squared test for uniformity
-    log.write("\nChi-squared test (H0: uniform detection rate across all energies):\n")
+    log.write("\nChi-squared test (H0: uniform forward-exit rate across all energies):\n")
     expected_p = overall_p
     chi2 = 0
     dof = len(results) - 1

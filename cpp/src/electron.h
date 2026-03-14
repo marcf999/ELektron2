@@ -66,9 +66,15 @@ struct Electron {
         double Xdoty0 = 0.0;
         double Xdotz0 = velocity0;
 
-        // Initialize spin along z-axis (axis of propagation)
-        theta0 = (PhysicalData::spin >= 0) ? 0.0 : M_PI;
-        phi0 = 0.0;
+        // Initialize spin axis — uniform random on sphere if "random", else fixed
+        if (PhysicalData::spinRandom) {
+            std::uniform_real_distribution<double> uni01(0.0, 1.0);
+            theta0 = std::acos(1.0 - 2.0 * uni01(rng));
+            phi0   = 2.0 * M_PI * uni01(rng);
+        } else {
+            theta0 = PhysicalData::spinTheta0;
+            phi0   = PhysicalData::spinPhi0;
+        }
 
         // Random zitter phase
         psi0 = phaseDist(rng);

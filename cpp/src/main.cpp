@@ -184,12 +184,14 @@ int main(int argc, char** argv) {
     int totalSimulations = PhysicalData::totalSimulations;
     int plotsToShow = PhysicalData::plotsToShow;
 
-    // Parse args: elektron2 [numElectrons] [energyEV]
+    // Parse args: elektron2 [numElectrons] [energyEV] [spinAxis]
+    //   spinAxis: +x, -x, +y, -y, +z, -z (default: +z)
     if (argc > 1) totalSimulations = std::atoi(argv[1]);
     if (totalSimulations < 1) totalSimulations = PhysicalData::totalSimulations;
     double energyEV = PhysicalData::startEnergy;
     if (argc > 2) energyEV = std::atof(argv[2]);
     if (energyEV <= 0) energyEV = PhysicalData::startEnergy;
+    if (argc > 3) PhysicalData::setSpinAxis(argv[3]);
 
     int cores = 1;
 #ifdef _OPENMP
@@ -199,7 +201,7 @@ int main(int argc, char** argv) {
     std::cout << "PARAMS | rangeMin: " << PhysicalData::rangeMin
               << " | rangeMax: " << PhysicalData::rangeMax
               << " | startEnergy: " << energyEV
-              << " | spin: " << PhysicalData::spin
+              << " | spin: " << PhysicalData::spinLabel
               << " | carbonProtons(Z): " << PhysicalData::carbonProtons
               << " | atoms: " << PhysicalData::atomCount
               << " | spacing: " << PhysicalData::atomSpacing << " (reduced)\n";
@@ -260,7 +262,7 @@ int main(int argc, char** argv) {
     std::cout << std::defaultfloat;
 
     // ================================================================
-    // Write full-precision results file for DETECTED electrons only
+    // Write full-precision results file for forward-exit electrons only
     // ================================================================
     {
         // Timestamp
@@ -318,10 +320,9 @@ int main(int argc, char** argv) {
         out << "# detectionDistance: " << PhysicalData::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysicalData::rangeMin << " m\n";
         out << "# rangeMax: " << PhysicalData::rangeMax << " m\n";
-        out << "# spin: " << PhysicalData::spin << "\n";
-        out << "# spinOrientation: " << (PhysicalData::spin >= 0 ? "+z (along propagation)" : "-z (against propagation)") << "\n";
-        out << "# theta0: " << (PhysicalData::spin >= 0 ? 0.0 : M_PI) << " rad  (polar angle of spin axis)\n";
-        out << "# phi0: 0.0 rad  (azimuthal angle of spin axis)\n";
+        out << "# spinOrientation: " << PhysicalData::spinLabel << "\n";
+        out << "# theta0: " << PhysicalData::spinTheta0 << " rad  (polar angle of spin axis)\n";
+        out << "# phi0: " << PhysicalData::spinPhi0 << " rad  (azimuthal angle of spin axis)\n";
         out << "# psi0: random [0, 2pi)  (zitter phase, per-electron)\n";
         out << "# Z: " << PhysicalData::carbonProtons << "\n";
         out << "# alpha: " << PhysicalData::alpha << "\n";

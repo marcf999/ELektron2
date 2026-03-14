@@ -1,11 +1,12 @@
 #!/bin/bash
 # Energy scan: run 1M electrons at each energy point and log detection rates.
-# Usage: ./energy_scan.sh [electrons_per_point]
-#   Default: 1000000 electrons per energy point
+# Usage: ./energy_scan.sh [electrons_per_point] [spin_axis]
+#   Default: 750000 electrons per energy point, spin +z
+#   spin_axis: +x, -x, +y, -y, +z, -z
 #
 # Output:
 #   - Individual .dat files in ../results/ (one per energy)
-#   - Summary CSV: energy_scan_TIMESTAMP.csv with energy, detected, total, pct, time_s
+#   - Summary CSV: energy_scan_TIMESTAMP.csv with energy, forward_exit, total, pct, time_s
 #   - Console log: energy_scan_TIMESTAMP.log
 
 set -euo pipefail
@@ -13,6 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARY="${SCRIPT_DIR}/../build/elektron2_rocm_fp64"
 ELECTRONS="${1:-750000}"
+SPIN="${2:-+z}"
 
 # Energy scan range: 10 points centered on 5000 eV
 E_START=4991
@@ -31,7 +33,7 @@ echo "Log: ${LOGFILE}"
 echo ""
 
 # CSV header
-echo "energy_eV,detected,total,pct,kernel_time_s,throughput_e_per_s" > "$SUMMARY"
+echo "energy_eV,forward_exit,total,pct,kernel_time_s,throughput_e_per_s" > "$SUMMARY"
 
 # Redirect all output to both console and log
 exec > >(tee -a "$LOGFILE") 2>&1
@@ -49,24 +51,28 @@ for ENERGY in $(seq $E_START $E_STEP $E_END); do
 
     # Run simulation with live output (tee to temp file for post-parsing)
     TMPOUT=$(mktemp)
-    stdbuf -oL "$BINARY" "$ELECTRONS" "$ENERGY" 2>&1 | tee "$TMPOUT"
+    stdbuf -oL "$BINARY" "$ELECTRONS" "$ENERGY" "$SPIN" 2>&1 | tee "$TMPOUT"
 
-    # Extract results from captured output
-    DETECTED=$(grep "^DETECTED:" "$TMPOUT" | sed 's/.*: \([0-9]*\)\/.*/\1/')
-    TOTAL=$(grep "^DETECTED:" "$TMPOUT" | sed 's/.*\/\([0-9]*\) .*/\1/')
-    PCT=$(grep "^DETECTED:" "$TMPOUT" | sed 's/.*(\(.*\)%)/\1/')
-    KERNEL_MS=$(grep "^KERNEL TIME:" "$TMPOUT" | sed 's/.*: \([0-9]*\) ms.*/\1/')
-    THROUGHPUT=$(grep "^KERNEL TIME:" "$TMPOUT" | sed 's/.*(// ; s/ electrons.*//')
+    # Extract forward-exit count (isPos) and timing from stdout
+    FORWARD=$(grep "^isNaN:" "$TMPOUT" | sed 's/.*isPos: \([0-9]*\).*/\1/' || echo "0")
+    TOTAL_SIMS=$(grep "^TOTAL TIME FOR" "$TMPOUT" | sed 's/.*FOR \([0-9]*\) SIMULATIONS.*/\1/' || echo "0")
+    KERNEL_MS=$(grep "^KERNEL TIME:" "$TMPOUT" | sed 's/.*: \([0-9]*\) ms.*/\1/' || echo "0")
+    THROUGHPUT=$(grep "^KERNEL TIME:" "$TMPOUT" | sed 's/.*(// ; s/ electrons.*//' || echo "0")
     rm -f "$TMPOUT"
 
+    if [ "$TOTAL_SIMS" -gt 0 ] 2>/dev/null; then
+        PCT=$(echo "scale=4; 100 * ${FORWARD} / ${TOTAL_SIMS}" | bc)
+    else
+        PCT="0"
+    fi
     KERNEL_S=$(echo "scale=1; ${KERNEL_MS:-0} / 1000" | bc)
 
-    echo "${ENERGY},${DETECTED},${TOTAL},${PCT},${KERNEL_S},${THROUGHPUT}" >> "$SUMMARY"
+    echo "${ENERGY},${FORWARD},${TOTAL_SIMS},${PCT},${KERNEL_S},${THROUGHPUT}" >> "$SUMMARY"
 
     ELAPSED=$(( $(date +%s) - SCAN_START ))
     REMAINING=$(( (TOTAL_POINTS - POINT) * ELAPSED / POINT ))
     echo ""
-    echo ">>> ${ENERGY} eV: ${DETECTED}/${TOTAL} detected (${PCT}%) in ${KERNEL_S}s"
+    echo ">>> ${ENERGY} eV: ${FORWARD}/${TOTAL_SIMS} forward exit (${PCT}%) in ${KERNEL_S}s"
     echo ">>> Scan progress: ${POINT}/${TOTAL_POINTS} | Elapsed: $((ELAPSED/3600))h$((ELAPSED%3600/60))m | ETA: $((REMAINING/3600))h$((REMAINING%3600/60))m"
     echo ""
 done

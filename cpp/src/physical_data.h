@@ -2,6 +2,9 @@
 
 #include <cmath>
 #include <array>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
 
 namespace PhysicalData {
 
@@ -13,7 +16,26 @@ namespace PhysicalData {
     constexpr double rangeMin = 1e-12;
     constexpr double rangeMax = 1e-10;
 
-    constexpr int spin = +1;
+    // Spin axis: set at runtime via CLI (default: +z)
+    inline double spinTheta0 = 0.0;
+    inline double spinPhi0 = 0.0;
+    inline std::string spinLabel = "+z";
+
+    inline bool spinRandom = false;  // when true, each electron gets a random spin axis
+
+    inline void setSpinAxis(const std::string& axis) {
+        if (axis == "+z" || axis == "z")       { spinTheta0 = 0.0;        spinPhi0 = 0.0;           spinLabel = "+z"; }
+        else if (axis == "-z")                 { spinTheta0 = M_PI;       spinPhi0 = 0.0;           spinLabel = "-z"; }
+        else if (axis == "+x" || axis == "x")  { spinTheta0 = M_PI/2.0;  spinPhi0 = 0.0;           spinLabel = "+x"; }
+        else if (axis == "-x")                 { spinTheta0 = M_PI/2.0;  spinPhi0 = M_PI;          spinLabel = "-x"; }
+        else if (axis == "+y" || axis == "y")  { spinTheta0 = M_PI/2.0;  spinPhi0 = M_PI/2.0;     spinLabel = "+y"; }
+        else if (axis == "-y")                 { spinTheta0 = M_PI/2.0;  spinPhi0 = 3.0*M_PI/2.0;  spinLabel = "-y"; }
+        else if (axis == "random" || axis == "rand") { spinRandom = true; spinLabel = "random"; }
+        else {
+            fprintf(stderr, "Unknown spin axis: '%s'. Use: +x,-x,+y,-y,+z,-z,random\n", axis.c_str());
+            exit(1);
+        }
+    }
 
     // Zitter radius in m: hbar/(2mc)
     constexpr double zitterRadius = 1.93079634e-13;

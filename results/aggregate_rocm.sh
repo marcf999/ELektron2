@@ -4,15 +4,16 @@ CSVOUT="results/rocm_summary.csv"
 LOGOUT="results/rocm_summary.log"
 
 # Pass 1: extract per-file data, aggregate in awk
+# Forward exits = data lines (non-comment lines) in each .dat file
 for f in results/*rocm*.dat; do
     energy=$(grep -m1 "^# startEnergy:" "$f" | sed 's/.*: *//; s/ *eV.*//')
     total=$(grep -m1 "^# Total simulations:" "$f" | sed 's/.*: *//')
-    detected=$(grep -m1 "^# Detected:" "$f" | sed 's/.*: *//')
-    [ -z "$detected" ] && continue
-    echo "$energy $detected $total $(basename $f)"
+    forward_exit=$(grep -vc "^#" "$f" || echo "0")
+    [ -z "$total" ] && continue
+    echo "$energy $forward_exit $total $(basename $f)"
 done | awk '
 BEGIN {
-    print "energy_eV,detected,total,percent,stderr_pct,files" > "'"$CSVOUT"'"
+    print "energy_eV,forward_exit,total,percent,stderr_pct,files" > "'"$CSVOUT"'"
 }
 {
     e=$1; d=$2; n=$3; fn=$4
@@ -52,7 +53,7 @@ END {
     printf "ELektron2 ROCm Energy Scan - Aggregated Summary\n" >> LOG
     printf "Generated: 2026-03-13\n" >> LOG
     printf "%s\n\n", "================================================================================" >> LOG
-    printf "%10s %10s %10s %10s %10s %10s %6s\n", "Energy", "Detected", "Total", "Rate %", "+/-1s %", "+/-2s %", "Files" >> LOG
+    printf "%10s %10s %10s %10s %10s %10s %6s\n", "Energy", "FwdExit", "Total", "Rate %", "+/-1s %", "+/-2s %", "Files" >> LOG
     printf "%s\n", "--------------------------------------------------------------------" >> LOG
 
     peak_e = ""; peak_p = 0; trough_e = ""; trough_p = 100
@@ -68,8 +69,8 @@ END {
     overall_se = sqrt(overall_p * (1-overall_p) / grand_n)
     printf "Overall: %d/%d = %.4f%% +/- %.4f%% (1s)\n\n", grand_d, grand_n, 100*overall_p, 100*overall_se >> LOG
 
-    printf "Peak detection: %s eV at %.4f%% +/- %.4f%%\n", peak_e, peak_p, peak_se >> LOG
-    printf "Min  detection: %s eV at %.4f%% +/- %.4f%%\n\n", trough_e, trough_p, trough_se >> LOG
+    printf "Peak forward exit: %s eV at %.4f%% +/- %.4f%%\n", peak_e, peak_p, peak_se >> LOG
+    printf "Min  forward exit: %s eV at %.4f%% +/- %.4f%%\n\n", trough_e, trough_p, trough_se >> LOG
 
     # Peak vs trough significance
     z = (peak_p - trough_p) / sqrt(peak_se^2 + trough_se^2)
@@ -79,7 +80,7 @@ END {
     else printf " (<2s, not significant)\n" >> LOG
 
     # Chi-squared
-    printf "\nChi-squared test (H0: uniform detection rate across all energies):\n" >> LOG
+    printf "\nChi-squared test (H0: uniform forward-exit rate across all energies):\n" >> LOG
     chi2 = 0; dof = eCount - 1
     for (i=1; i<=eCount; i++) {
         e = eList[i]
