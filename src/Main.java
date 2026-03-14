@@ -21,9 +21,6 @@ public class Main {
     private static class SimulationResult {
         Electron electron;
         long elapsedTimeMs;
-        boolean detected;
-        double xDet_mm;
-        double yDet_mm;
     }
 
     public static void main(String[] args) {
@@ -50,8 +47,6 @@ public class Main {
                 " | atoms: " + PhysicalData.atomCount);
         System.out.println("Integrator: DormandPrince853 | relTol: " + PhysicalData.relTol +
                 " | absTol: " + PhysicalData.absTol);
-        System.out.println("Detector: " + (PhysicalData.apertureHalfM * 2000.0) + "mm x "
-                + (PhysicalData.apertureHalfM * 2000.0) + "mm at " + PhysicalData.detectorDistanceM + "m");
         System.out.println("Running " + totalSimulations + " simulations on " + cores + " cores.");
 
         ExecutorService executor = Executors.newFixedThreadPool(cores);
@@ -70,7 +65,6 @@ public class Main {
 
         List<Electron> visualizationElectrons = new ArrayList<>();
         List<SimulationResult> allResults = new ArrayList<>();
-        AtomicInteger detectedCount = new AtomicInteger(0);
         long totalStartMs = System.currentTimeMillis();
 
         try {
@@ -82,35 +76,14 @@ public class Main {
                 Electron electron = result.electron;
                 allResults.add(result);
 
-                // Virtual detector: project forward-going electrons onto detector plane
-                double[] s = electron.electronCurrentState;
-                double vx = s[6], vy = s[7], vz = s[8];
-                if (vz > 0) {
-                    double xAtDet = (vx / vz) * PhysicalData.detectorDistanceM;
-                    double yAtDet = (vy / vz) * PhysicalData.detectorDistanceM;
-                    if (Math.abs(xAtDet) < PhysicalData.apertureHalfM &&
-                        Math.abs(yAtDet) < PhysicalData.apertureHalfM) {
-                        result.detected = true;
-                        result.xDet_mm = xAtDet * 1e3;
-                        result.yDet_mm = yAtDet * 1e3;
-                        int det = detectedCount.incrementAndGet();
-                        System.out.println("DETECTED #" + det +
-                                " | Steps: " + electron.internalCount +
-                                electron.getEXIT() +
-                                " | xDet: " + String.format("%.3e", xAtDet * 1e3) + "mm" +
-                                " | yDet: " + String.format("%.3e", yAtDet * 1e3) + "mm" +
-                                " | Time: " + result.elapsedTimeMs + "ms");
-                    }
-                }
-
                 if (visualizationElectrons.size() < plotsToShow) {
                     visualizationElectrons.add(electron);
                 }
 
                 if (completedCount % PhysicalData.progressLogEvery == 0 || completedCount == totalSimulations) {
                     long elapsedMs = System.currentTimeMillis() - totalStartMs;
-                    System.out.printf("Progress: %d/%d | Detected: %d | Elapsed: %.1fs%n",
-                            completedCount, totalSimulations, detectedCount.get(), elapsedMs / 1000.0);
+                    System.out.printf("Progress: %d/%d | Elapsed: %.1fs%n",
+                            completedCount, totalSimulations, elapsedMs / 1000.0);
                 }
 
                 // Submit next task if more remain
@@ -129,23 +102,21 @@ public class Main {
         }
 
         long totalElapsedMs = System.currentTimeMillis() - totalStartMs;
-        System.out.printf("TOTAL TIME FOR %d SIMULATIONS: %dms (%d cores) | DETECTED: %d/%d (%.1f%%) | Energy: %.0f eV%n",
-                totalSimulations, totalElapsedMs, cores,
-                detectedCount.get(), totalSimulations,
-                100.0 * detectedCount.get() / totalSimulations, energy);
+        System.out.printf("TOTAL TIME FOR %d SIMULATIONS: %dms (%d cores) | Energy: %.0f eV%n",
+                totalSimulations, totalElapsedMs, cores, energy);
 
         for (Electron electron : visualizationElectrons) {
             Electron e = electron;
             javax.swing.SwingUtilities.invokeLater(() -> new PlotDots(e));
         }
 
-        // Write full-precision results file for ALL electrons
-        writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs, energy, detectedCount.get());
+        // Write full-precision results file for all forward-exit electrons
+        writeResultsFile(allResults, totalSimulations, cores, totalElapsedMs, energy);
     }
 
     private static void writeResultsFile(List<SimulationResult> allResults,
             int totalSimulations, int cores, long totalElapsedMs,
-            double energyEV, int detectedCount) {
+            double energyEV) {
         LocalDateTime now = LocalDateTime.now();
         String timestamp = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         String datePart = now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
@@ -180,17 +151,18 @@ public class Main {
             out.println("# Cores: " + cores);
             out.println("# Total time: " + totalElapsedMs + " ms");
             out.println("# Total simulations: " + totalSimulations);
-            out.println("# Detected: " + detectedCount);
-            out.println("# Detected ratio: " + (100.0 * detectedCount / totalSimulations) + "%");
-            out.println("# Detector: " + (PhysicalData.apertureHalfM * 2000.0) + "mm x "
-                    + (PhysicalData.apertureHalfM * 2000.0) + "mm at "
-                    + PhysicalData.detectorDistanceM + "m");
             out.println("# startEnergy: " + repr(energyEV) + " eV");
             out.println("# startPos: " + repr(PhysicalData.startPos) + " (reduced)");
             out.println("# detectionDistance: " + repr(PhysicalData.detectionDistance) + " (reduced)");
             out.println("# rangeMin: " + repr(PhysicalData.rangeMin) + " m");
             out.println("# rangeMax: " + repr(PhysicalData.rangeMax) + " m");
             out.println("# spin: " + PhysicalData.spin);
+            String spinLabel = (PhysicalData.spin >= 0) ? "+z (along propagation)" : "-z (against propagation)";
+            double theta0val = (PhysicalData.spin >= 0) ? 0.0 : Math.PI;
+            out.println("# spinOrientation: " + spinLabel);
+            out.println("# theta0: " + repr(theta0val) + " rad  (polar angle of spin axis)");
+            out.println("# phi0: 0.0 rad  (azimuthal angle of spin axis)");
+            out.println("# psi0: random [0, 2pi)  (zitter phase, per-electron)");
             out.println("# Z: " + repr(PhysicalData.carbonProtons));
             out.println("# atomCount: " + PhysicalData.atomCount);
             out.println("# atomSpacing: " + repr(PhysicalData.atomSpacing) + " (reduced) = "
@@ -200,8 +172,7 @@ public class Main {
             out.println("# Columns:");
             out.println("# idx qx qy qz rx ry rz vx vy vz ux uy uz"
                     + " energyIn_eV energyOut_eV angle_deg steps"
-                    + " elapsedMs dxZERO_reduced psi0"
-                    + " xDet_mm yDet_mm detected");
+                    + " elapsedMs dxZERO_reduced psi0");
             out.println("#");
 
             int written = 0;
@@ -210,13 +181,7 @@ public class Main {
                 Electron e = r.electron;
                 double[] s = e.electronCurrentState;
 
-                // Only write electrons that passed through the chain (forward z exit)
-                if (s[Electron.QZ] < PhysicalData.detectionDistance) continue;
-
-                // Compute detector position
-                double vz = s[Electron.VZ];
-                double xDet = (vz != 0) ? (s[Electron.VX] / vz) * PhysicalData.detectorDistanceM * 1e3 : 0;
-                double yDet = (vz != 0) ? (s[Electron.VY] / vz) * PhysicalData.detectorDistanceM * 1e3 : 0;
+                if (s[Electron.QZ] < PhysicalData.detectionDistance - 1.0) continue;
 
                 out.print(written);
                 for (int j = 0; j < 12; j++) out.print(" " + repr(s[j]));
@@ -227,9 +192,6 @@ public class Main {
                 out.print(" " + r.elapsedTimeMs);
                 out.print(" " + repr(e.dxZERO));
                 out.print(" " + repr(e.psi0));
-                out.print(" " + repr(xDet));
-                out.print(" " + repr(yDet));
-                out.print(" " + (r.detected ? 1 : 0));
                 out.println();
                 written++;
             }

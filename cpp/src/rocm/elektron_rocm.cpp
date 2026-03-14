@@ -21,6 +21,7 @@
 #include <chrono>
 #include <random>
 #include <vector>
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -68,9 +69,6 @@ namespace PhysConst {
     constexpr double dp853RelTol = 1e-12;
     constexpr double dp853MinStep = 1e-10;
     constexpr double dp853MaxStep = 10.0;
-
-    constexpr double detectorDistanceM = 1.0;     // 1 metre
-    constexpr double apertureHalfM    = 50e-3;    // 100mm × 100mm square aperture
 
     constexpr int defaultSimulations = 100;
     constexpr int progressLogEvery = 100;
@@ -589,9 +587,6 @@ struct ElectronOutput {
     real minimalDistance;
     double dxZERO;
     double psi0;
-    double xDet_mm;     // detector x coordinate in mm (0 if not detected)
-    double yDet_mm;     // detector y coordinate in mm (0 if not detected)
-    bool   detected;    // true if electron hit detector aperture
 };
 
 // ============================================================================
@@ -795,9 +790,6 @@ int main(int argc, char** argv) {
            totalSimulations, batchSize, blockSize, gridSize);
     printf("XY boundary: %.1f reduced units (3 * Bohr radius)\n",
            3.0 * PhysConst::reducedBohr);
-    printf("Detector: %.0fmm x %.0fmm aperture at %.2fm\n",
-           PhysConst::apertureHalfM * 2e3, PhysConst::apertureHalfM * 2e3,
-           PhysConst::detectorDistanceM);
     fflush(stdout);
 
     // Allocate device-side atomic counter for live progress tracking.
@@ -813,7 +805,6 @@ int main(int argc, char** argv) {
     auto kernelStart = std::chrono::steady_clock::now();
 
     std::vector<ElectronOutput> h_outputs(totalSimulations);
-    int detectedSoFar = 0;
 
     // Launch all batches
     int launched = 0;
@@ -857,33 +848,11 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipMemcpy(h_outputs.data(), d_outputs,
         totalSimulations * sizeof(ElectronOutput), hipMemcpyDeviceToHost));
 
-    // Compute detector hits
-    for (int i = 0; i < totalSimulations; i++) {
-        auto& o = h_outputs[i];
-        o.detected = false;
-        o.xDet_mm = 0;
-        o.yDet_mm = 0;
-        double vx = (double)o.finalState[6];
-        double vy = (double)o.finalState[7];
-        double vz = (double)o.finalState[8];
-        if (vz > 0) {
-            double xAtDet = (vx / vz) * PhysConst::detectorDistanceM;
-            double yAtDet = (vy / vz) * PhysConst::detectorDistanceM;
-            if (std::abs(xAtDet) < PhysConst::apertureHalfM &&
-                std::abs(yAtDet) < PhysConst::apertureHalfM) {
-                o.detected = true;
-                o.xDet_mm = xAtDet * 1e3;
-                o.yDet_mm = yAtDet * 1e3;
-                detectedSoFar++;
-            }
-        }
-    }
-
     {
         auto now = std::chrono::steady_clock::now();
         long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - kernelStart).count();
-        printf("Progress: %d/%d (100.0%%) | Detected: %d | Elapsed: %.1fs\n",
-               totalSimulations, totalSimulations, detectedSoFar, elapsedMs / 1000.0);
+        printf("Progress: %d/%d (100.0%%) | Elapsed: %.1fs\n",
+               totalSimulations, totalSimulations, elapsedMs / 1000.0);
         fflush(stdout);
     }
 
@@ -897,9 +866,8 @@ int main(int argc, char** argv) {
     HIP_CHECK(hipFree(d_inputs));
     HIP_CHECK(hipFree(d_outputs));
 
-    // Final tally (detector already computed in batch loop)
+    // Final tally
     int isNaN_total = 0, isPos_total = 0, isNeg_total = 0, xyEscape_total = 0;
-    int detectedCount = detectedSoFar;
     long totalSteps = 0;
 
     for (int i = 0; i < totalSimulations; i++) {
@@ -922,12 +890,6 @@ int main(int argc, char** argv) {
     printf("\n=== SUMMARY ===\n");
     printf("isNaN: %d | isPos: %d | isNeg: %d | xyEscape: %d\n",
            isNaN_total, isPos_total, isNeg_total, xyEscape_total);
-    printf("DETECTED: %d/%d (%.1f%%)\n",
-           detectedCount, totalSimulations,
-           100.0 * detectedCount / totalSimulations);
-    printf("Detector: %.0fmm x %.0fmm aperture at %.2fm\n",
-           PhysConst::apertureHalfM * 2e3, PhysConst::apertureHalfM * 2e3,
-           PhysConst::detectorDistanceM);
     printf("Energy: %.0f eV\n", energyEV);
     printf("Total steps: %ld | Avg steps/electron: %ld\n",
            totalSteps, totalSteps / totalSimulations);
@@ -972,17 +934,16 @@ int main(int argc, char** argv) {
         out << "# Kernel time: " << kernelMs << " ms\n";
         out << "# Total time: " << totalMs << " ms\n";
         out << "# Total simulations: " << totalSimulations << "\n";
-        out << "# Detected: " << detectedCount << "\n";
-        out << "# Detected ratio: " << (100.0 * detectedCount / totalSimulations) << "%\n";
-        out << "# Detector: " << PhysConst::apertureHalfM * 2e3 << "mm x "
-            << PhysConst::apertureHalfM * 2e3 << "mm at "
-            << PhysConst::detectorDistanceM << "m\n";
         out << "# startEnergy: " << energyEV << " eV\n";
         out << "# startPos: " << PhysConst::startPos << " (reduced)\n";
         out << "# detectionDistance: " << PhysConst::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysConst::rangeMin << " m\n";
         out << "# rangeMax: " << PhysConst::rangeMax << " m\n";
         out << "# spin: " << PhysConst::spin << "\n";
+        out << "# spinOrientation: " << (PhysConst::spin >= 0 ? "+z (along propagation)" : "-z (against propagation)") << "\n";
+        out << "# theta0: " << (PhysConst::spin >= 0 ? 0.0 : M_PI) << " rad  (polar angle of spin axis)\n";
+        out << "# phi0: 0.0 rad  (azimuthal angle of spin axis)\n";
+        out << "# psi0: random [0, 2pi)  (zitter phase, per-electron)\n";
         out << "# Z: " << PhysConst::carbonProtons << "\n";
         out << "# alpha: " << PhysConst::alpha << "\n";
         out << "# reducedBohr: " << PhysConst::reducedBohr << "\n";
@@ -998,15 +959,13 @@ int main(int argc, char** argv) {
         out << "# Columns:\n";
         out << "# idx qx qy qz rx ry rz vx vy vz ux uy uz"
             << " energyIn_eV energyOut_eV angle_deg steps"
-            << " apexCharge exitCode dxZERO_reduced psi0"
-            << " xDet_mm yDet_mm detected\n";
+            << " apexCharge exitCode dxZERO_reduced psi0\n";
         out << "#\n";
 
         int written = 0;
         for (int i = 0; i < totalSimulations; i++) {
             auto& o = h_outputs[i];
 
-            // Only write electrons that passed through the chain (forward z exit)
             if (o.exitCode != EXIT_FORWARD) continue;
 
             const real* s = o.finalState;
@@ -1023,9 +982,6 @@ int main(int argc, char** argv) {
                 << " " << o.exitCode
                 << " " << o.dxZERO
                 << " " << o.psi0
-                << " " << o.xDet_mm
-                << " " << o.yDet_mm
-                << " " << (o.detected ? 1 : 0)
                 << "\n";
             written++;
         }

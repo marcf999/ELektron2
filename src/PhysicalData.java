@@ -26,7 +26,7 @@ public class PhysicalData {
     // Simulation parameters
     public static double startEnergy = 5000d;       // eV
     public static double startPos = -(chainHalfLength + 4000);  // reduced units, well before first atom
-    public static int totalSimulations = 24;
+    public static int totalSimulations = 1000;
     public static int plotsToShow = 10;
 
     // Integrator tolerances
@@ -80,7 +80,4 @@ public class PhysicalData {
     // XY-boundary: stop if |qx| or |qy| exceeds 3 Bohr radii (reduced units)
     public static double xyBoundary = 3.0 * reducedBohr;
 
-    // Detector: 1m distance, 100mm × 100mm square aperture centered on z-axis
-    public static double detectorDistanceM = 1.0d;      // meters
-    public static double apertureHalfM = 50e-3d;        // half-width in meters (100mm side)
 }

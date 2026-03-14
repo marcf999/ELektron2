@@ -97,8 +97,4 @@ namespace PhysicalData {
     // XY-boundary: stop if |qx| or |qy| exceeds 3 Bohr radii (reduced units)
     inline const double xyBoundary = 3.0 * reducedBohr;
 
-    // Detector: 1m distance, 1mm × 1mm square aperture centered on z-axis
-    constexpr double detectorDistanceM = 1.0;      // meters
-    constexpr double apertureHalfM = 50e-3;         // half-width in meters (100mm side)
-
 } // namespace PhysicalData

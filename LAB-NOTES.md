@@ -658,3 +658,25 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 - Dips at 4997 and 5003 are marginal (~1.3σ below mean)
 - Throughput varies 109–140 e/s due to straggler effect (batch completion dominated by slowest electron)
 - Next step: confirm 5005 eV feature with higher statistics or finer energy steps around 5004–5006 eV
+
+### March 13, 2026 — Spin z-axis alignment, forward-exit output, visualization reset
+
+**44) Spin initialization changed from y-axis to z-axis**
+- Previous: `theta0 = π/2`, `phi0 = ±π/2` → spin along ±y-axis.
+- New: `theta0 = 0` (spin-up) or `π` (spin-down), `phi0 = 0` → spin along ±z-axis (axis of propagation).
+- Changed in all codebases: Java (`Electron.java`), C++ (`electron.h`), CUDA (`elektron_cuda.cu`), ROCm (`elektron_rocm.cpp`).
+- Physics motivation: align spin with propagation direction, matching a longitudinally polarized beam.
+
+**45) .dat file now writes all forward-exit electrons (not just aperture hits)**
+- Previous: only electrons that hit the detector aperture were written to the `.dat` file.
+- New: all electrons that exit forward through the chain (`qz >= detectionDistance` in Java/C++, `exitCode == EXIT_FORWARD` in ROCm) are written.
+- Added `detected` column (0 = forward exit but missed aperture, 1 = hit aperture) for post-processing filtering.
+- Aperture detection ratio (e.g. 3.6%) still computed and reported in console output and `.dat` header.
+- Column headers updated: `... xDet_mm yDet_mm detected`.
+- Added `vz != 0` guard in Java/C++ for detector position calculation on edge cases.
+
+**46) Java PlotDots visualization reset**
+- Zoom reset to 1.0× (was 5000×) to show full atom chain and trajectories at startup.
+- View centered on origin (0,0) instead of trajectory midpoint.
+- `totalSimulations = 24`, `plotsToShow = 10` restored for Java and C++ (was 100/0 from production runs).
+- C++ PlotDots retains trajectory-centered view with zoom=5000 for spin structure inspection.

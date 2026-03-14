@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <fstream>
 #include <vector>
+#include <algorithm>
 #include <chrono>
 #include <random>
 #include <atomic>
@@ -30,7 +31,6 @@
 struct SimulationResult {
     Electron electron;
     long elapsedMs;
-    bool detected = false;
 };
 
 // ============================================================================
@@ -217,16 +217,12 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "Running " << totalSimulations << " simulations on " << cores << " cores.\n";
-    std::cout << "Detector: " << PhysicalData::detectorDistanceM << "m distance, "
-              << (PhysicalData::apertureHalfM * 2000.0) << "mm x "
-              << (PhysicalData::apertureHalfM * 2000.0) << "mm aperture\n";
 
     auto totalStart = std::chrono::steady_clock::now();
 
     // Collect results
     std::vector<SimulationResult> results(totalSimulations);
     std::atomic<int> completedCount{0};
-    std::atomic<int> detectedCount{0};
     std::mutex printMutex;
 
     #pragma omp parallel
@@ -244,32 +240,11 @@ int main(int argc, char** argv) {
 
             int count = ++completedCount;
 
-            // Check detector hit: forward electron, project to detector plane
-            auto& e = results[i].electron;
-            const State& s = e.currentState;
-            if (s[VZ] > 0) {
-                double xAtDet = (s[VX] / s[VZ]) * PhysicalData::detectorDistanceM;
-                double yAtDet = (s[VY] / s[VZ]) * PhysicalData::detectorDistanceM;
-                if (std::abs(xAtDet) < PhysicalData::apertureHalfM &&
-                    std::abs(yAtDet) < PhysicalData::apertureHalfM) {
-                    results[i].detected = true;
-                    int det = ++detectedCount;
-                    std::lock_guard<std::mutex> lock(printMutex);
-                    std::cout << "DETECTED #" << det << " (electron " << i << ")"
-                              << " | Steps: " << e.internalCount
-                              << e.getEXIT()
-                              << " | xDet: " << std::scientific << std::setprecision(3) << xAtDet * 1e3 << "mm"
-                              << " | yDet: " << yAtDet * 1e3 << "mm"
-                              << " | Time: " << results[i].elapsedMs << "ms\n";
-                }
-            }
-
             if (count % 48 == 0 || count == totalSimulations) {
                 auto now = std::chrono::steady_clock::now();
                 long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - totalStart).count();
                 std::lock_guard<std::mutex> lock(printMutex);
                 std::cout << "Progress: " << count << "/" << totalSimulations
-                          << " | Detected: " << detectedCount.load()
                           << " | Elapsed: " << std::fixed << std::setprecision(1) << elapsedMs / 1000.0 << "s\n";
                 std::cout << std::defaultfloat;
             }
@@ -281,9 +256,6 @@ int main(int argc, char** argv) {
 
     std::cout << "\nTOTAL TIME FOR " << totalSimulations << " SIMULATIONS: "
               << totalMs << "ms (" << cores << " cores)"
-              << " | DETECTED: " << detectedCount.load() << "/" << totalSimulations
-              << " (" << std::fixed << std::setprecision(1)
-              << (100.0 * detectedCount.load() / totalSimulations) << "%)"
               << " | Energy: " << energyEV << " eV\n";
     std::cout << std::defaultfloat;
 
@@ -341,17 +313,16 @@ int main(int argc, char** argv) {
         out << "# Cores: " << cores << "\n";
         out << "# Total time: " << totalMs << " ms\n";
         out << "# Total simulations: " << totalSimulations << "\n";
-        out << "# Detected: " << detectedCount.load() << "\n";
-        out << "# Detected ratio: " << (100.0 * detectedCount.load() / totalSimulations) << "%\n";
-        out << "# Detector: " << PhysicalData::detectorDistanceM << " m, "
-            << (PhysicalData::apertureHalfM * 2000.0) << " mm x "
-            << (PhysicalData::apertureHalfM * 2000.0) << " mm aperture\n";
         out << "# startEnergy: " << energyEV << " eV\n";
         out << "# startPos: " << PhysicalData::startPos << " (reduced)\n";
         out << "# detectionDistance: " << PhysicalData::detectionDistance << " (reduced)\n";
         out << "# rangeMin: " << PhysicalData::rangeMin << " m\n";
         out << "# rangeMax: " << PhysicalData::rangeMax << " m\n";
         out << "# spin: " << PhysicalData::spin << "\n";
+        out << "# spinOrientation: " << (PhysicalData::spin >= 0 ? "+z (along propagation)" : "-z (against propagation)") << "\n";
+        out << "# theta0: " << (PhysicalData::spin >= 0 ? 0.0 : M_PI) << " rad  (polar angle of spin axis)\n";
+        out << "# phi0: 0.0 rad  (azimuthal angle of spin axis)\n";
+        out << "# psi0: random [0, 2pi)  (zitter phase, per-electron)\n";
         out << "# Z: " << PhysicalData::carbonProtons << "\n";
         out << "# alpha: " << PhysicalData::alpha << "\n";
         out << "# reducedBohr: " << PhysicalData::reducedBohr << "\n";
@@ -365,8 +336,7 @@ int main(int argc, char** argv) {
         out << "# Columns:\n";
         out << "# idx qx qy qz rx ry rz vx vy vz ux uy uz"
             << " energyIn_eV energyOut_eV angle_deg steps"
-            << " elapsedMs dxZERO_reduced psi0"
-            << " xDet_mm yDet_mm detected\n";
+            << " elapsedMs dxZERO_reduced psi0\n";
         out << "#\n";
 
         int written = 0;
@@ -374,11 +344,7 @@ int main(int argc, char** argv) {
             auto& e = results[i].electron;
             const State& s = e.currentState;
 
-            // Only write electrons that passed through the chain (forward z exit)
-            if (s[QZ] < PhysicalData::detectionDistance) continue;
-
-            double xAtDet = (s[VZ] != 0) ? (s[VX] / s[VZ]) * PhysicalData::detectorDistanceM : 0;
-            double yAtDet = (s[VZ] != 0) ? (s[VY] / s[VZ]) * PhysicalData::detectorDistanceM : 0;
+            if (s[QZ] < PhysicalData::detectionDistance - 1.0) continue;
 
             out << written
                 << " " << s[QX] << " " << s[QY] << " " << s[QZ]
@@ -392,9 +358,6 @@ int main(int argc, char** argv) {
                 << " " << results[i].elapsedMs
                 << " " << e.dxZERO
                 << " " << e.psi0
-                << " " << xAtDet * 1e3
-                << " " << yAtDet * 1e3
-                << " " << (results[i].detected ? 1 : 0)
                 << "\n";
             written++;
         }
@@ -405,15 +368,17 @@ int main(int argc, char** argv) {
     }
 
     // ================================================================
-    // Show PlotDots visualization for DETECTED electrons only
+    // Show PlotDots visualization for first N forward-exit electrons
     // Each window runs in its own thread — all visible simultaneously
     // ================================================================
 #ifdef HAVE_SFML
     PlotDots::closeAll.store(false);
     std::vector<std::thread> plotThreads;
-    for (int i = 0; i < totalSimulations; i++) {
-        if (results[i].detected && results[i].electron.stateCamera.size() >= 2) {
-            std::cout << "Launching PlotDots for detected electron " << i
+    int plotted = 0;
+    for (int i = 0; i < totalSimulations && plotted < PhysicalData::plotsToShow; i++) {
+        if (results[i].electron.stateCamera.size() >= 2) {
+            plotted++;
+            std::cout << "Launching PlotDots for electron " << i
                       << " (" << results[i].electron.stateCamera.size() << " camera points)\n";
             plotThreads.emplace_back([&results, i]() {
                 PlotDots::show(results[i].electron);
