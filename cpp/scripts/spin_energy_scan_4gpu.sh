@@ -16,7 +16,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARY="${SCRIPT_DIR}/../build/elektron2_rocm_fp64"
 ELECTRONS="${1:-1000000}"
-NUM_GPUS=4
+NUM_GPUS=$(rocminfo 2>/dev/null | grep -c "Name:.*gfx" || echo 4)
+if [ "$NUM_GPUS" -lt 1 ]; then NUM_GPUS=4; fi
 
 # 4 spins × 3 energies = 12 jobs
 SPINS=("+x" "+y" "+z" "random")

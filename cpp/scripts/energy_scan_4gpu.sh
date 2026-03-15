@@ -17,7 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARY="${SCRIPT_DIR}/../build/elektron2_rocm_fp64"
 ELECTRONS="${1:-1000000}"
 SPIN="${2:-+z}"
-NUM_GPUS=4
+NUM_GPUS=$(rocminfo 2>/dev/null | grep -c "Name:.*gfx" || echo 4)
+if [ "$NUM_GPUS" -lt 1 ]; then NUM_GPUS=4; fi
 
 # Energy points: dense around 5005 anomaly (0.25 eV steps), sparser at edges (1.0 eV)
 ENERGIES=(
