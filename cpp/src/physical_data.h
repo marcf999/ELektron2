@@ -12,9 +12,18 @@ namespace PhysicalData {
     enum class Integrator { Boost, DP853 };
     constexpr Integrator integrator = Integrator::DP853;
 
-    // Impact parameter range in meters
-    constexpr double rangeMin = 1e-12;
-    constexpr double rangeMax = 1e-10;
+    // Dual-row geometry: two rows of atoms separated by 1.42 Å in x
+    // Each row at x = ±halfSeparation from channel center (x=0)
+    constexpr double rowSeparationMeters = 1.42e-10;  // same as C-C bond length
+    constexpr double halfSeparationMeters = rowSeparationMeters / 2.0;
+    constexpr double halfSeparation = halfSeparationMeters / zitterRadius;  // ~367.8 reduced units
+    constexpr int rowCount = 2;
+    // Atom x-positions for the two rows (reduced units)
+    inline const std::array<double, rowCount> atomX = { -halfSeparation, +halfSeparation };
+
+    // Impact parameter range in meters: 0 to row wall minus one zitter radius
+    constexpr double rangeMin = 0.0;
+    constexpr double rangeMax = halfSeparationMeters - zitterRadius;  // 7.081e-11 m
 
     // Spin axis: set at runtime via CLI (default: +z)
     inline double spinTheta0 = 0.0;

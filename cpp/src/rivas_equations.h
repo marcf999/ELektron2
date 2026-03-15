@@ -57,24 +57,26 @@ struct RivasEquations {
 
         double dv1 = 0.0, dv2 = 0.0, dv3 = 0.0;
 
-        for (int k = 0; k < PhysicalData::atomCount; k++) {
-            // Displacement from atom k to charge center
-            // Atoms are along z-axis at (0, 0, atomZ[k])
-            double d1 = r1;
-            double d2 = r2;
-            double d3 = r3 - PhysicalData::atomZ[k];
+        for (int row = 0; row < PhysicalData::rowCount; row++) {
+            for (int k = 0; k < PhysicalData::atomCount; k++) {
+                // Displacement from atom (row, k) to charge center
+                // Atoms at (atomX[row], 0, atomZ[k])
+                double d1 = r1 - PhysicalData::atomX[row];
+                double d2 = r2;
+                double d3 = r3 - PhysicalData::atomZ[k];
 
-            double dNorm2 = d1*d1 + d2*d2 + d3*d3;
-            double dNorm = std::sqrt(dNorm2);
-            double dNorm3 = dNorm2 * dNorm;
+                double dNorm2 = d1*d1 + d2*d2 + d3*d3;
+                double dNorm = std::sqrt(dNorm2);
+                double dNorm3 = dNorm2 * dNorm;
 
-            if (dNorm3 > 1e-30) {
-                double ddotv = d1*v1 + d2*v2 + d3*v3;
-                double screening = std::exp(-dNorm / rB);
-                double emFactor = twoZAlpha * screening * sqrtFactor / dNorm3;
-                dv1 -= emFactor * (d1 - v1 * ddotv);
-                dv2 -= emFactor * (d2 - v2 * ddotv);
-                dv3 -= emFactor * (d3 - v3 * ddotv);
+                if (dNorm3 > 1e-30) {
+                    double ddotv = d1*v1 + d2*v2 + d3*v3;
+                    double screening = std::exp(-dNorm / rB);
+                    double emFactor = twoZAlpha * screening * sqrtFactor / dNorm3;
+                    dv1 -= emFactor * (d1 - v1 * ddotv);
+                    dv2 -= emFactor * (d2 - v2 * ddotv);
+                    dv3 -= emFactor * (d3 - v3 * ddotv);
+                }
             }
         }
 

@@ -57,8 +57,14 @@ namespace PhysConst {
     constexpr double detectionDistance = chainHalfLength + 4000.0;
     constexpr double maxTime = 1e6;
 
-    constexpr double rangeMin = 1e-12;
-    constexpr double rangeMax = 1e-10;
+    // Dual-row geometry: two rows separated by 1.42 Å in x
+    constexpr double rowSeparationMeters = 1.42e-10;
+    constexpr double halfSeparationMeters = rowSeparationMeters / 2.0;
+    constexpr double halfSeparation = halfSeparationMeters / zitterRadius;  // ~367.8 reduced units
+    constexpr int rowCount = 2;
+
+    constexpr double rangeMin = 0.0;
+    constexpr double rangeMax = halfSeparationMeters - zitterRadius;  // 7.081e-11 m
     // Spin axis: set at runtime via CLI (default: +z)
     double spinTheta0 = 0.0;   // polar angle of spin axis
     double spinPhi0   = 0.0;   // azimuthal angle of spin axis
@@ -96,12 +102,15 @@ namespace PhysConst {
     // Computed at startup
     inline double reducedBohr;
     inline double atomZ[atomCount];
+    inline double atomX[rowCount];  // x-positions of the two rows
 
     void init() {
         reducedBohr = bohrRadius / zitterRadius;
         for (int i = 0; i < atomCount; i++) {
             atomZ[i] = (i - (atomCount - 1) / 2.0) * atomSpacing;
         }
+        atomX[0] = -halfSeparation;
+        atomX[1] = +halfSeparation;
     }
 }
 
@@ -231,6 +240,7 @@ typedef double real;
 
 // Physics
 __constant__ real d_atomZ[30];
+__constant__ real d_atomX[2];   // x-positions of the two atom rows
 __constant__ real d_Z;
 __constant__ real d_alpha;
 __constant__ real d_rB;
@@ -262,6 +272,10 @@ void initDeviceConstants() {
     real h_atomZ[30];
     for (int i = 0; i < 30; i++) h_atomZ[i] = (real)atomZ[i];
     HIP_CHECK(hipMemcpyToSymbol(d_atomZ, h_atomZ, sizeof(h_atomZ)));
+
+    real h_atomX[2];
+    for (int i = 0; i < 2; i++) h_atomX[i] = (real)atomX[i];
+    HIP_CHECK(hipMemcpyToSymbol(d_atomX, h_atomX, sizeof(h_atomX)));
 
     real val;
     val = (real)carbonProtons;  HIP_CHECK(hipMemcpyToSymbol(d_Z, &val, sizeof(real)));
@@ -333,26 +347,28 @@ __device__ void rivas_rhs(real /*t*/, const real* __restrict__ y,
     // (full 3D distance is always >= z-distance, so this is safe)
     real cutoff = SCREEN_CUTOFF_RB * d_rB;  // ~1375 reduced units
 
-    for (int k = 0; k < ATOM_COUNT; k++) {
-        real d3 = r3 - d_atomZ[k];
+    for (int row = 0; row < 2; row++) {
+        for (int k = 0; k < ATOM_COUNT; k++) {
+            real d3 = r3 - d_atomZ[k];
 
-        // Fast z-distance check: skip if too far (avoids exp+sqrt)
-        if (d3 > cutoff || d3 < -cutoff) continue;
+            // Fast z-distance check: skip if too far (avoids exp+sqrt)
+            if (d3 > cutoff || d3 < -cutoff) continue;
 
-        real d1 = r1;
-        real d2 = r2;
+            real d1 = r1 - d_atomX[row];
+            real d2 = r2;
 
-        real dNorm2 = d1*d1 + d2*d2 + d3*d3;
-        real dNorm = REAL_SQRT(dNorm2);
-        real dNorm3 = dNorm2 * dNorm;
+            real dNorm2 = d1*d1 + d2*d2 + d3*d3;
+            real dNorm = REAL_SQRT(dNorm2);
+            real dNorm3 = dNorm2 * dNorm;
 
-        if (dNorm3 > (real)1e-30) {
-            real ddotv = d1*v1 + d2*v2 + d3*v3;
-            real screening = REAL_EXP(-dNorm / d_rB);
-            real emFactor = twoZAlpha * screening * sqrtFactor / dNorm3;
-            dv1 -= emFactor * (d1 - v1 * ddotv);
-            dv2 -= emFactor * (d2 - v2 * ddotv);
-            dv3 -= emFactor * (d3 - v3 * ddotv);
+            if (dNorm3 > (real)1e-30) {
+                real ddotv = d1*v1 + d2*v2 + d3*v3;
+                real screening = REAL_EXP(-dNorm / d_rB);
+                real emFactor = twoZAlpha * screening * sqrtFactor / dNorm3;
+                dv1 -= emFactor * (d1 - v1 * ddotv);
+                dv2 -= emFactor * (d2 - v2 * ddotv);
+                dv3 -= emFactor * (d3 - v3 * ddotv);
+            }
         }
     }
 
@@ -540,11 +556,14 @@ __device__ IntegrationResult dp853_integrate(real* y, int globalIdx) {
             // Track closest approach every 64 steps
             if ((result.nSteps & 63) == 0) {
                 real rx = y[3], ry = y[4], rz = y[5];
-                real xy2 = rx*rx + ry*ry;
-                for (int a = 0; a < ATOM_COUNT; a++) {
-                    real dz = rz - d_atomZ[a];
-                    real dist = REAL_SQRT(xy2 + dz*dz);
-                    if (dist < result.minimalDistance) result.minimalDistance = dist;
+                for (int row = 0; row < 2; row++) {
+                    real dx = rx - d_atomX[row];
+                    real dx2_ry2 = dx*dx + ry*ry;
+                    for (int a = 0; a < ATOM_COUNT; a++) {
+                        real dz = rz - d_atomZ[a];
+                        real dist = REAL_SQRT(dx2_ry2 + dz*dz);
+                        if (dist < result.minimalDistance) result.minimalDistance = dist;
+                    }
                 }
             }
 
