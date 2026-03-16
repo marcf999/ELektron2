@@ -680,3 +680,47 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 - View centered on origin (0,0) instead of trajectory midpoint.
 - `totalSimulations = 24`, `plotsToShow = 10` restored for Java and C++ (was 100/0 from production runs).
 - C++ PlotDots retains trajectory-centered view with zoom=5000 for spin structure inspection.
+
+### March 14, 2026 — Spin axis CLI and multi-spin energy scans
+
+**47) Runtime spin axis CLI (+x, -x, +y, -y, +z, -z, random)**
+- Added `argv[3]` spin axis selection to all codebases (Java, C++, CUDA, ROCm).
+- `PhysicalData::setSpinAxis()` maps string to `(theta0, phi0)` pairs:
+  - `+z`: (0, 0), `-z`: (π, 0), `+x`: (π/2, 0), `-x`: (π/2, π), `+y`: (π/2, π/2), `-y`: (π/2, 3π/2)
+  - `random`: each electron gets a uniformly random spin axis on the unit sphere.
+- Spin label printed in console banner and `.dat` file header.
+- Default remains `+z` for backward compatibility.
+
+**48) Spin -y 4-GPU run script + auto-detect GPU count**
+- `run_tworows_spin_plus_y_4gpu.sh`: 4-GPU parallel run for two-row geometry with spin +y.
+- `energy_scan_4gpu.sh`: auto-detects GPU count via `rocminfo | grep -c "Name:.*gfx"`.
+- Work-queue pattern: seed all GPUs, poll for completion, harvest results, feed next energy point.
+- Merge logic for multi-GPU .dat files: concatenate data lines, re-index, sum summary counters, average kernel times.
+
+**49) Multi-spin orientation scan results (2M electrons each, 4995/5000/5005 eV)**
+- Ran 15 configurations: 5 spin orientations (+x, +y, -y, +z, random) × 3 energies (4995, 5000, 5005 eV).
+- Results stored in `/home/marcf/results/resultsSpin/` on WSL.
+- Analysis scripts: `plot_spin_angle_density.py` updated to support 5 spin orientations with distinct colors/markers.
+
+### March 15, 2026 — Dual-row channeling and no-zitter control
+
+**50) Dual-row channeling geometry (2×30 atoms, 1.42 Å separation in x)**
+- Added second row of 30 carbon atoms offset by 1.42 Å (graphene C-C bond length) in the x-direction.
+- Both rows share the same z-positions (30 atoms each, 1.42 Å spacing along z).
+- `atomCount` doubled to 60 effective force centers in the RHS force sum.
+- Impact parameter now covers the full channel width between the two rows.
+- Results stored in `/home/marcf/results/resultsTwoRows/` on WSL.
+
+**51) No-zitter flag for classical point-particle control runs**
+- Added `--no-zitter` CLI flag (`argv[4]`) across CPU, CUDA, and ROCm backends.
+- When active: charge position locked to mass center (r = q, u = v) in initialization. Zero initial separation and zitter velocity.
+- ODE changes: `dr/dt = v` (instead of `u`), `du/dt = dv/dt` (instead of zitter constraint). Effectively reduces the 12D Rivas model to a 6D classical point-particle with doubled state vector.
+- Console banner prints `ZITTER OFF (control)` when flag is active.
+- `d_noZitter` device constant for GPU kernels.
+
+**52) Combined energy scan script: spin +y + no-zitter control**
+- `scan_tworows_spiny_and_nozitter_4gpu.sh`: 14-point 4-GPU work queue.
+- Phase 1: spin +y at 4995–5005 eV in 1 eV steps (11 points).
+- Phase 2: no-zitter control at 4995, 5000, 5005 eV (3 points).
+- Output CSV has `label` column (`spin+y` vs `no-zitter`) for direct comparison.
+- Purpose: isolate zitterbewegung contribution to channeling by comparing Rivas model against classical point-particle baseline.
