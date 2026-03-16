@@ -80,14 +80,23 @@ struct Electron {
         psi0 = phaseDist(rng);
 
         // Calculate zitter position from Rivas (r tilde zero)
-        double rxZERO = std::cos(theta0) * std::cos(phi0) * std::cos(psi0) - std::sin(phi0) * std::sin(psi0);
-        double ryZERO = std::cos(theta0) * std::sin(phi0) * std::cos(psi0) + std::cos(phi0) * std::sin(psi0);
-        double rzZERO = -std::sin(theta0) * std::cos(psi0);
+        double rxZERO, ryZERO, rzZERO;
+        double uxZERO, uyZERO, uzZERO;
 
-        // Calculate zitter velocity from Rivas (u tilde zero)
-        double uxZERO = std::cos(theta0) * std::cos(phi0) * std::sin(psi0) + std::sin(phi0) * std::cos(psi0);
-        double uyZERO = std::cos(theta0) * std::sin(phi0) * std::sin(psi0) - std::cos(phi0) * std::cos(psi0);
-        double uzZERO = -std::sin(theta0) * std::sin(psi0);
+        if (PhysicalData::noZitter) {
+            // No zitter: charge locked to mass (classical point particle)
+            rxZERO = ryZERO = rzZERO = 0.0;
+            uxZERO = uyZERO = uzZERO = 0.0;
+        } else {
+            rxZERO = std::cos(theta0) * std::cos(phi0) * std::cos(psi0) - std::sin(phi0) * std::sin(psi0);
+            ryZERO = std::cos(theta0) * std::sin(phi0) * std::cos(psi0) + std::cos(phi0) * std::sin(psi0);
+            rzZERO = -std::sin(theta0) * std::cos(psi0);
+
+            // Calculate zitter velocity from Rivas (u tilde zero)
+            uxZERO = std::cos(theta0) * std::cos(phi0) * std::sin(psi0) + std::sin(phi0) * std::cos(psi0);
+            uyZERO = std::cos(theta0) * std::sin(phi0) * std::sin(psi0) - std::cos(phi0) * std::cos(psi0);
+            uzZERO = -std::sin(theta0) * std::sin(psi0);
+        }
 
         // Dot products for boost
         double vdotrZero = Xdotx0 * rxZERO + Xdoty0 * ryZERO + Xdotz0 * rzZERO;

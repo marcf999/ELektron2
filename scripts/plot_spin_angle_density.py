@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Density vs exit-angle for all 12 spin x energy .dat files (2M electrons each).
-Layout: 3 rows (one per energy) x 1 col, 4 spin curves per panel.
+Density vs exit-angle for all spin x energy .dat files (2M electrons each).
+Layout: 3 rows (one per energy) x 1 col, 5 spin curves per panel.
 """
 import os, re, glob
 import numpy as np
@@ -16,7 +16,7 @@ def parse_energy(fname):
     return int(m.group(1)) if m else None
 
 def parse_spin(fname):
-    m = re.search(r'spin([+\w]+)', fname)
+    m = re.search(r'spin([+\-]?\w+)', fname)
     return m.group(1) if m else None
 
 def load_angles(filepath):
@@ -52,9 +52,9 @@ for f in files:
         print(f"  {energy} eV  spin {spin:>7s}: {len(angles):>7,} detected / {total:,} = {pct:.2f}%")
 
 energies = sorted(set(e for e, s in data.keys()))
-spins = ['+x', '+y', '+z', 'random']
-spin_colors = {'+x': '#e41a1c', '+y': '#377eb8', '+z': '#4daf4a', 'random': '#984ea3'}
-spin_markers = {'+x': 'o', '+y': 's', '+z': '^', 'random': 'D'}
+spins = ['+x', '+y', '-y', '+z', 'random']
+spin_colors = {'+x': '#e41a1c', '+y': '#377eb8', '-y': '#ff7f00', '+z': '#4daf4a', 'random': '#984ea3'}
+spin_markers = {'+x': 'o', '+y': 's', '-y': 'v', '+z': '^', 'random': 'D'}
 
 # Non-uniform bins: fine near peaks at ~87 deg and ~93 deg
 bins = np.unique(np.concatenate([
@@ -97,10 +97,10 @@ for ax, energy in zip(axes, energies):
         ax.axvline(peak, color='gray', ls='--', lw=0.7, alpha=0.5)
 
 axes[-1].set_xlabel('Exit angle (deg)', fontsize=12)
-fig.suptitle('Exit-Angle Density: Spin Orientation x Energy (2M electrons each)',
+fig.suptitle('Exit-Angle Density: Spin Orientation x Energy (2M electrons each, 5 orientations)',
              fontsize=14, fontweight='bold', y=1.01)
 fig.tight_layout()
 
-outpath = os.path.join(RESULTS_DIR, 'spin_angle_density_all12.png')
+outpath = os.path.join(RESULTS_DIR, 'spin_angle_density_all15.png')
 fig.savefig(outpath, dpi=180, bbox_inches='tight')
 print(f"\nSaved: {outpath}")

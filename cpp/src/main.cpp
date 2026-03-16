@@ -192,6 +192,7 @@ int main(int argc, char** argv) {
     if (argc > 2) energyEV = std::atof(argv[2]);
     if (energyEV <= 0) energyEV = PhysicalData::startEnergy;
     if (argc > 3) PhysicalData::setSpinAxis(argv[3]);
+    if (argc > 4 && std::string(argv[4]) == "--no-zitter") PhysicalData::noZitter = true;
 
     int cores = 1;
 #ifdef _OPENMP
@@ -202,6 +203,7 @@ int main(int argc, char** argv) {
               << " | rangeMax: " << PhysicalData::rangeMax
               << " | startEnergy: " << energyEV
               << " | spin: " << PhysicalData::spinLabel
+              << (PhysicalData::noZitter ? " | ZITTER OFF (control)" : "")
               << " | carbonProtons(Z): " << PhysicalData::carbonProtons
               << " | atoms: " << PhysicalData::atomCount
               << " | spacing: " << PhysicalData::atomSpacing << " (reduced)\n";

@@ -31,6 +31,7 @@ namespace PhysicalData {
     inline std::string spinLabel = "+z";
 
     inline bool spinRandom = false;  // when true, each electron gets a random spin axis
+    inline bool noZitter = false;    // when true, charge locked to mass (classical point particle)
 
     inline void setSpinAxis(const std::string& axis) {
         if (axis == "+z" || axis == "z")       { spinTheta0 = 0.0;        spinPhi0 = 0.0;           spinLabel = "+z"; }

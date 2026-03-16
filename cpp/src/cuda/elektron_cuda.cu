@@ -64,6 +64,7 @@ namespace PhysConst {
     inline std::string spinLabel = "+z";
 
     inline bool spinRandom = false;  // when true, each electron gets a random spin axis
+    inline bool noZitter = false;    // when true, charge locked to mass (classical point particle)
 
     inline void setSpinAxis(const std::string& axis) {
         if (axis == "+z" || axis == "z")       { spinTheta0 = 0.0;        spinPhi0 = 0.0;           spinLabel = "+z"; }
@@ -240,6 +241,7 @@ __constant__ real d_rB;
 __constant__ real d_detectionDistance;
 __constant__ real d_maxTime;
 __constant__ real d_m0c2;
+__constant__ int  d_noZitter;
 
 // Butcher tableau
 __constant__ real d_C[12];
@@ -276,6 +278,7 @@ void initDeviceConstants() {
     val = (real)detectionDistance; CUDA_CHECK(cudaMemcpyToSymbol(d_detectionDistance, &val, sizeof(real)));
     val = (real)maxTime;        CUDA_CHECK(cudaMemcpyToSymbol(d_maxTime, &val, sizeof(real)));
     val = (real)m0c2;           CUDA_CHECK(cudaMemcpyToSymbol(d_m0c2, &val, sizeof(real)));
+    int nz = noZitter ? 1 : 0; CUDA_CHECK(cudaMemcpyToSymbol(d_noZitter, &nz, sizeof(int)));
 
     // Butcher tableau
     real h_C[12], h_A[12][12], h_B[13], h_E1[12], h_E2[12];
@@ -324,8 +327,12 @@ __device__ void rivas_rhs(real /*t*/, const real* __restrict__ y,
 
     // dq/dt = v
     dydt[0] = v1;  dydt[1] = v2;  dydt[2] = v3;
-    // dr/dt = u
-    dydt[3] = u1;  dydt[4] = u2;  dydt[5] = u3;
+    // dr/dt = u (or v if no-zitter)
+    if (d_noZitter) {
+        dydt[3] = v1;  dydt[4] = v2;  dydt[5] = v3;
+    } else {
+        dydt[3] = u1;  dydt[4] = u2;  dydt[5] = u3;
+    }
 
     // dv/dt: screened Coulomb force summed over all atoms
     real v2sq = v1*v1 + v2*v2 + v3*v3;
@@ -365,20 +372,26 @@ __device__ void rivas_rhs(real /*t*/, const real* __restrict__ y,
 
     dydt[6] = dv1;  dydt[7] = dv2;  dydt[8] = dv3;
 
-    // du/dt: zitter constraint
-    real qr1 = q1 - r1, qr2 = q2 - r2, qr3 = q3 - r3;
-    real qrNorm2 = qr1*qr1 + qr2*qr2 + qr3*qr3;
-    real vdotu = v1*u1 + v2*u2 + v3*u3;
-
-    if (qrNorm2 > (real)1e-30) {
-        real zitterFactor = ((real)1.0 - vdotu) / qrNorm2;
-        dydt[9]  = zitterFactor * qr1;
-        dydt[10] = zitterFactor * qr2;
-        dydt[11] = zitterFactor * qr3;
+    // du/dt: zitter constraint (or track dv/dt if no-zitter)
+    if (d_noZitter) {
+        dydt[9]  = dv1;
+        dydt[10] = dv2;
+        dydt[11] = dv3;
     } else {
-        dydt[9]  = (real)0.0;
-        dydt[10] = (real)0.0;
-        dydt[11] = (real)0.0;
+        real qr1 = q1 - r1, qr2 = q2 - r2, qr3 = q3 - r3;
+        real qrNorm2 = qr1*qr1 + qr2*qr2 + qr3*qr3;
+        real vdotu = v1*u1 + v2*u2 + v3*u3;
+
+        if (qrNorm2 > (real)1e-30) {
+            real zitterFactor = ((real)1.0 - vdotu) / qrNorm2;
+            dydt[9]  = zitterFactor * qr1;
+            dydt[10] = zitterFactor * qr2;
+            dydt[11] = zitterFactor * qr3;
+        } else {
+            dydt[9]  = (real)0.0;
+            dydt[10] = (real)0.0;
+            dydt[11] = (real)0.0;
+        }
     }
 }
 
@@ -681,13 +694,21 @@ ElectronInput generateElectron(double energy, double rangeMin, double rangeMax,
     double psi0 = phaseDist(rng);
     e.psi0 = psi0;
 
-    double rxZERO = std::cos(theta0)*std::cos(phi0)*std::cos(psi0) - std::sin(phi0)*std::sin(psi0);
-    double ryZERO = std::cos(theta0)*std::sin(phi0)*std::cos(psi0) + std::cos(phi0)*std::sin(psi0);
-    double rzZERO = -std::sin(theta0)*std::cos(psi0);
+    double rxZERO, ryZERO, rzZERO;
+    double uxZERO, uyZERO, uzZERO;
 
-    double uxZERO = std::cos(theta0)*std::cos(phi0)*std::sin(psi0) + std::sin(phi0)*std::cos(psi0);
-    double uyZERO = std::cos(theta0)*std::sin(phi0)*std::sin(psi0) - std::cos(phi0)*std::cos(psi0);
-    double uzZERO = -std::sin(theta0)*std::sin(psi0);
+    if (noZitter) {
+        rxZERO = ryZERO = rzZERO = 0.0;
+        uxZERO = uyZERO = uzZERO = 0.0;
+    } else {
+        rxZERO = std::cos(theta0)*std::cos(phi0)*std::cos(psi0) - std::sin(phi0)*std::sin(psi0);
+        ryZERO = std::cos(theta0)*std::sin(phi0)*std::cos(psi0) + std::cos(phi0)*std::sin(psi0);
+        rzZERO = -std::sin(theta0)*std::cos(psi0);
+
+        uxZERO = std::cos(theta0)*std::cos(phi0)*std::sin(psi0) + std::sin(phi0)*std::cos(psi0);
+        uyZERO = std::cos(theta0)*std::sin(phi0)*std::sin(psi0) - std::cos(phi0)*std::cos(psi0);
+        uzZERO = -std::sin(theta0)*std::sin(psi0);
+    }
 
     double vdotrZero = Xdotx0*rxZERO + Xdoty0*ryZERO + Xdotz0*rzZERO;
     double vdotuZero = Xdotx0*uxZERO + Xdoty0*uyZERO + Xdotz0*uzZERO;
@@ -750,6 +771,7 @@ int main(int argc, char** argv) {
         if (e > 0) energyEV = e;
     }
     if (argc > 3) PhysConst::setSpinAxis(argv[3]);
+    if (argc > 4 && std::string(argv[4]) == "--no-zitter") PhysConst::noZitter = true;
 
     // GPU info
     int deviceId;
@@ -763,9 +785,11 @@ int main(int argc, char** argv) {
            prop.totalGlobalMem / (1024.0 * 1024.0));
 
     printf("PARAMS | rangeMin: %.2e | rangeMax: %.2e | startEnergy: %.0f eV"
-           " | spin: %s | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
+           " | spin: %s%s | Z: %.0f | atoms: %d | spacing: %.1f (reduced)\n",
            PhysConst::rangeMin, PhysConst::rangeMax, energyEV,
-           PhysConst::spinLabel.c_str(), PhysConst::carbonProtons,
+           PhysConst::spinLabel.c_str(),
+           PhysConst::noZitter ? " | ZITTER OFF (control)" : "",
+           PhysConst::carbonProtons,
            PhysConst::atomCount, PhysConst::atomSpacing);
 #ifdef USE_FLOAT
     printf("Integrator: DP853 (CUDA, FP32) | absTol: 1e-6 | relTol: 1e-6"

@@ -45,10 +45,12 @@ struct RivasEquations {
         dydt[1] = v2;
         dydt[2] = v3;
 
-        // dr/dt = u
-        dydt[3] = u1;
-        dydt[4] = u2;
-        dydt[5] = u3;
+        // dr/dt = u (or v if no-zitter)
+        if (PhysicalData::noZitter) {
+            dydt[3] = v1;  dydt[4] = v2;  dydt[5] = v3;
+        } else {
+            dydt[3] = u1;  dydt[4] = u2;  dydt[5] = u3;
+        }
 
         // dv/dt: screened Coulomb force on center of mass — summed over all atoms
         double v2sq = v1*v1 + v2*v2 + v3*v3;
@@ -84,20 +86,26 @@ struct RivasEquations {
         dydt[7] = dv2;
         dydt[8] = dv3;
 
-        // du/dt: zitter constraint (unchanged — depends only on q-r and v.u)
-        double qr1 = q1 - r1, qr2 = q2 - r2, qr3 = q3 - r3;
-        double qrNorm2 = qr1*qr1 + qr2*qr2 + qr3*qr3;
-        double vdotu = v1*u1 + v2*u2 + v3*u3;
-
-        if (qrNorm2 > 1e-30) {
-            double zitterFactor = (1.0 - vdotu) / qrNorm2;
-            dydt[9]  = zitterFactor * qr1;
-            dydt[10] = zitterFactor * qr2;
-            dydt[11] = zitterFactor * qr3;
+        // du/dt: zitter constraint (or track dv/dt if no-zitter)
+        if (PhysicalData::noZitter) {
+            dydt[9]  = dv1;
+            dydt[10] = dv2;
+            dydt[11] = dv3;
         } else {
-            dydt[9]  = 0.0;
-            dydt[10] = 0.0;
-            dydt[11] = 0.0;
+            double qr1 = q1 - r1, qr2 = q2 - r2, qr3 = q3 - r3;
+            double qrNorm2 = qr1*qr1 + qr2*qr2 + qr3*qr3;
+            double vdotu = v1*u1 + v2*u2 + v3*u3;
+
+            if (qrNorm2 > 1e-30) {
+                double zitterFactor = (1.0 - vdotu) / qrNorm2;
+                dydt[9]  = zitterFactor * qr1;
+                dydt[10] = zitterFactor * qr2;
+                dydt[11] = zitterFactor * qr3;
+            } else {
+                dydt[9]  = 0.0;
+                dydt[10] = 0.0;
+                dydt[11] = 0.0;
+            }
         }
     }
 };
