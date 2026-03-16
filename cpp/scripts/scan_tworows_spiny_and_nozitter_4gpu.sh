@@ -11,8 +11,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BINARY="${SCRIPT_DIR}/../build/elektron2_rocm_fp64"
 ELECTRONS="${1:-1000000}"
-NUM_GPUS=$(rocminfo 2>/dev/null | grep -c "Name:.*gfx" || echo 4)
-if [ "$NUM_GPUS" -lt 1 ]; then NUM_GPUS=4; fi
+NUM_GPUS=4  # MI300X has 4 usable VFs (rocminfo reports phantom devices)
 
 # Phase 1: spin +y, 4995–5005 eV in 1 eV steps
 SPINY_ENERGIES=(4995 4996 4997 4998 4999 5000 5001 5002 5003 5004 5005)
