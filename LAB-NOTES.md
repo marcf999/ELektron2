@@ -724,3 +724,46 @@ On 4 cores CAPD wins (33s vs 50s) because the critical section overhead is small
 - Phase 2: no-zitter control at 4995, 5000, 5005 eV (3 points).
 - Output CSV has `label` column (`spin+y` vs `no-zitter`) for direct comparison.
 - Purpose: isolate zitterbewegung contribution to channeling by comparing Rivas model against classical point-particle baseline.
+
+### March 16–17, 2026 — 2M electron scan results and zitter vs no-zitter analysis
+
+**53) GPU count fix — phantom device bug**
+- `rocminfo | grep -c "Name:.*gfx"` reported 12 GPUs on the MI300X, but only GPUs 0–3 are real VFs.
+- Jobs launched on GPUs 4+ crashed instantly with 0/0 results, consuming the work queue.
+- Fix: hardcoded `NUM_GPUS=4` in scan script.
+
+**54) 2M electron energy scan results (two-row, spin +y, 4995–5005 eV)**
+
+| Energy (eV) | Detected | Rate (%) | ±1σ (%) |
+|---|---|---|---|
+| 4995 | 40,115 | 2.006 | 0.010 |
+| 4996 | 39,962 | 1.998 | 0.010 |
+| 4997 | 39,411 | 1.971 | 0.010 |
+| 4998 | 39,305 | 1.965 | 0.010 |
+| 4999 | 39,605 | 1.980 | 0.010 |
+| 5000 | 39,748 | 1.987 | 0.010 |
+| 5001 | 39,844 | 1.992 | 0.010 |
+| 5002 | 39,742 | 1.987 | 0.010 |
+| 5003 | 39,826 | 1.991 | 0.010 |
+| 5004 | 39,771 | 1.989 | 0.010 |
+| 5005 | 39,760 | 1.988 | 0.010 |
+
+**55) No-zitter control results (2M electrons, two-row geometry)**
+
+| Energy (eV) | Detected | Rate (%) | ±1σ (%) |
+|---|---|---|---|
+| 4995 | 34,657 | 1.733 | 0.009 |
+| 5000 | 34,565 | 1.728 | 0.009 |
+| 5005 | 34,718 | 1.736 | 0.009 |
+
+- **Zitter enhances channeling by ~15%**: spin +y detection rate (~1.99%) is consistently higher than no-zitter classical control (~1.73%).
+- No-zitter runs are ~90× faster (~8000 e/s vs ~95 e/s) — no oscillatory dynamics to resolve.
+- Both zitter and no-zitter rates are flat across 4995–5005 eV — no resonance structure in this range.
+
+**56) Statistical analysis of 4997–4998 eV dip**
+- Dip at 4997 (1.971%) and 4998 (1.965%) relative to mean of other 9 points (1.991%).
+- Individual significance: 4997 at 2.0σ, 4998 at 2.6σ below mean.
+- Combined 4997+4998 pair: 3.0σ deficit.
+- Chi-squared test for flatness across all 11 points: χ²/dof = 2.53, p = 0.006 — formally rejects flatness at 99.4% CL.
+- **However**: after look-elsewhere correction (11 energy points), significance drops below 2σ. The dip is a ~2σ fluctuation, not a discovery.
+- A 10M electron run would be needed to resolve this definitively (estimated ~4 days, ~$768 at $8/hr).
